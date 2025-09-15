@@ -15,14 +15,11 @@ async function safeFetch(url: string, options: RequestInit = {}): Promise<Respon
 
       // 在 Node.js 环境中创建忽略 SSL 的 agent
       try {
-        // 动态检查是否在 Node.js 环境中
-        const isNodeEnvironment = typeof window === 'undefined' &&
-                                  typeof document === 'undefined';
-
-        if (isNodeEnvironment) {
-          // 使用 eval 避免 TypeScript 编译时检查
-          const httpsModule = eval('require')('https');
-          const agent = new httpsModule.Agent({
+        // 检查是否在服务器端环境
+        if (typeof window === 'undefined') {
+          // 动态导入 https 模块（仅在服务器端）
+          const { Agent } = await import('node:https');
+          const agent = new Agent({
             rejectUnauthorized: false
           });
 
@@ -32,9 +29,9 @@ async function safeFetch(url: string, options: RequestInit = {}): Promise<Respon
             agent
           });
         }
-      } catch (requireError) {
-        // 如果加载失败，继续抛出原始错误
-        console.warn('无法加载 https 模块，跳过 SSL 证书验证:', requireError);
+      } catch (importError) {
+        // 如果导入失败，记录警告但继续
+        console.warn('无法加载 https 模块，跳过 SSL 证书验证:', importError);
       }
     }
     throw error;
