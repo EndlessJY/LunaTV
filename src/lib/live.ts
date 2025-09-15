@@ -3,6 +3,44 @@
 import { getConfig } from "@/lib/config";
 import { db } from "@/lib/db";
 
+// 创建自定义的 fetch 函数来处理 SSL 证书问题
+async function safeFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  try {
+    return await fetch(url, options);
+  } catch (error: any) {
+    // 如果是 SSL 证书错误，尝试禁用证书验证
+    if (error?.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+        error?.message?.includes('certificate') ||
+        error?.message?.includes('SSL')) {
+
+      // 在 Node.js 环境中创建忽略 SSL 的 agent
+      try {
+        // 动态检查是否在 Node.js 环境中
+        const isNodeEnvironment = typeof window === 'undefined' &&
+                                  typeof document === 'undefined';
+
+        if (isNodeEnvironment) {
+          // 使用 eval 避免 TypeScript 编译时检查
+          const httpsModule = eval('require')('https');
+          const agent = new httpsModule.Agent({
+            rejectUnauthorized: false
+          });
+
+          return await fetch(url, {
+            ...options,
+            // @ts-ignore - Node.js specific agent property
+            agent
+          });
+        }
+      } catch (requireError) {
+        // 如果加载失败，继续抛出原始错误
+        console.warn('无法加载 https 模块，跳过 SSL 证书验证:', requireError);
+      }
+    }
+    throw error;
+  }
+}
+
 const defaultUA = 'AptvPlayer/1.4.10'
 
 export interface LiveChannels {
@@ -62,22 +100,33 @@ export async function refreshLiveChannels(liveInfo: {
     delete cachedLiveChannels[liveInfo.key];
   }
   const ua = liveInfo.ua || defaultUA;
-  const response = await fetch(liveInfo.url, {
-    headers: {
-      'User-Agent': ua,
-    },
-  });
-  const data = await response.text();
-  const result = parseM3U(liveInfo.key, data);
-  const epgUrl = liveInfo.epg || result.tvgUrl;
-  const epgs = await parseEpg(epgUrl, liveInfo.ua || defaultUA, result.channels.map(channel => channel.tvgId).filter(tvgId => tvgId));
-  cachedLiveChannels[liveInfo.key] = {
-    channelNumber: result.channels.length,
-    channels: result.channels,
-    epgUrl: epgUrl,
-    epgs: epgs,
-  };
-  return result.channels.length;
+
+  try {
+    const response = await safeFetch(liveInfo.url, {
+      headers: {
+        'User-Agent': ua,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.text();
+    const result = parseM3U(liveInfo.key, data);
+    const epgUrl = liveInfo.epg || result.tvgUrl;
+    const epgs = await parseEpg(epgUrl, liveInfo.ua || defaultUA, result.channels.map(channel => channel.tvgId).filter(tvgId => tvgId));
+    cachedLiveChannels[liveInfo.key] = {
+      channelNumber: result.channels.length,
+      channels: result.channels,
+      epgUrl: epgUrl,
+      epgs: epgs,
+    };
+    return result.channels.length;
+  } catch (error) {
+    console.error(`刷新直播源失败 [${liveInfo.name}]:`, error);
+    throw error;
+  }
 }
 
 async function parseEpg(epgUrl: string, ua: string, tvgIds: string[]): Promise<{
@@ -95,7 +144,7 @@ async function parseEpg(epgUrl: string, ua: string, tvgIds: string[]): Promise<{
   const result: { [key: string]: { start: string; end: string; title: string }[] } = {};
 
   try {
-    const response = await fetch(epgUrl, {
+    const response = await safeFetch(epgUrl, {
       headers: {
         'User-Agent': ua,
       },
