@@ -8,30 +8,31 @@ async function safeFetch(url: string, options: RequestInit = {}): Promise<Respon
   try {
     return await fetch(url, options);
   } catch (error: any) {
-    // 如果是 SSL 证书错误，尝试禁用证书验证
+    // 如果是 SSL 证书错误，记录错误信息并重新抛出
     if (error?.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
         error?.message?.includes('certificate') ||
         error?.message?.includes('SSL')) {
 
-      // 在 Node.js 环境中创建忽略 SSL 的 agent
-      try {
-        // 检查是否在服务器端环境
-        if (typeof window === 'undefined') {
-          // 动态导入 https 模块（仅在服务器端）
-          const { Agent } = await import('node:https');
-          const agent = new Agent({
-            rejectUnauthorized: false
-          });
+      console.warn('SSL证书验证失败，请检查证书配置或联系管理员:', {
+        url: url,
+        error: error.message,
+        code: error.code
+      });
 
-          return await fetch(url, {
-            ...options,
-            // @ts-ignore - Node.js specific agent property
-            agent
-          });
-        }
-      } catch (importError) {
-        // 如果导入失败，记录警告但继续
-        console.warn('无法加载 https 模块，跳过 SSL 证书验证:', importError);
+      // 尝试添加更多的请求头信息再试一次
+      try {
+        return await fetch(url, {
+          ...options,
+          headers: {
+            ...options.headers,
+            'Accept': '*/*',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+          }
+        });
+      } catch (retryError) {
+        // 如果重试也失败，抛出原始错误
+        throw error;
       }
     }
     throw error;
