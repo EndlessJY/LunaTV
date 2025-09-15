@@ -72,7 +72,7 @@
 ```yml
 services:
   moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
+    image: endlessjy/lunatv:latest
     container_name: moontv-core
     restart: on-failure
     ports:
@@ -106,7 +106,7 @@ volumes:
 ```yml
 services:
   moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
+    image: endlessjy/lunatv:latest
     container_name: moontv-core
     restart: on-failure
     ports:
@@ -142,7 +142,7 @@ networks:
 ```yml
 services:
   moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
+    image: endlessjy/lunatv:latest
     container_name: moontv-core
     restart: on-failure
     ports:
@@ -289,4 +289,4 @@ NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE 选项解释：
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=MoonTechLab/LunaTV&type=Date)](https://www.star-history.com/#MoonTechLab/LunaTV&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=endlessjy/LunaTV&type=Date)](https://www.star-history.com/#endlessjy/LunaTV&Date)
