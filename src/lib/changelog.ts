@@ -11,21 +11,6 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: "104.0.0",
-    date: "2025-09-16",
-    added: [
-      // 无新增内容
-    ],
-    changed: [
-      // 无变更内容
-    ],
-    fixed: [
-      "修复直播源SSL证书验证失败导致的刷新卡死问题",
-      "添加自动SSL证书错误处理机制",
-      "优化EPG数据获取的网络连接稳定性"
-    ]
-  },
-  {
     version: "103.0.0",
     date: "2025-09-15",
     added: [

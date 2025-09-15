@@ -3,42 +3,6 @@
 import { getConfig } from "@/lib/config";
 import { db } from "@/lib/db";
 
-// 创建自定义的 fetch 函数来处理 SSL 证书问题
-async function safeFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  try {
-    return await fetch(url, options);
-  } catch (error: any) {
-    // 如果是 SSL 证书错误，记录错误信息并重新抛出
-    if (error?.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
-        error?.message?.includes('certificate') ||
-        error?.message?.includes('SSL')) {
-
-      console.warn('SSL证书验证失败，请检查证书配置或联系管理员:', {
-        url: url,
-        error: error.message,
-        code: error.code
-      });
-
-      // 尝试添加更多的请求头信息再试一次
-      try {
-        return await fetch(url, {
-          ...options,
-          headers: {
-            ...options.headers,
-            'Accept': '*/*',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-          }
-        });
-      } catch (retryError) {
-        // 如果重试也失败，抛出原始错误
-        throw error;
-      }
-    }
-    throw error;
-  }
-}
-
 const defaultUA = 'AptvPlayer/1.4.10'
 
 export interface LiveChannels {
@@ -100,7 +64,7 @@ export async function refreshLiveChannels(liveInfo: {
   const ua = liveInfo.ua || defaultUA;
 
   try {
-    const response = await safeFetch(liveInfo.url, {
+    const response = await fetch(liveInfo.url, {
       headers: {
         'User-Agent': ua,
       },
@@ -142,7 +106,7 @@ async function parseEpg(epgUrl: string, ua: string, tvgIds: string[]): Promise<{
   const result: { [key: string]: { start: string; end: string; title: string }[] } = {};
 
   try {
-    const response = await safeFetch(epgUrl, {
+    const response = await fetch(epgUrl, {
       headers: {
         'User-Agent': ua,
       },
