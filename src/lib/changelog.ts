@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "103.0.0",
+    date: "2025-09-15",
+    added: [
+      "新增用户注册功能"
+    ],
+    changed: [
+      "版本号显示限制：仅管理员个人信息面板展示版本号，首页底部和非管理员个人信息面板不再展示版本号"
+    ],
+    fixed: [
+      "移除登录页面底部的版本号显示",
+      "更新changelog.ts文件包含最新版本信息"
+    ]
+  },
+  {
     version: "100.0.0",
     date: "2025-08-26",
     added: [
