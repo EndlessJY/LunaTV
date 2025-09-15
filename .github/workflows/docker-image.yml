@@ -159,38 +159,57 @@ jobs:
           INPUT_TAG="${{ github.event.inputs.tag || 'latest' }}"
           OWNER="${{ steps.lowercase.outputs.owner }}"
 
-          # 创建版本标签
+          # 如果是主分支推送，创建版本标签和latest标签
           if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/master" ]]; then
             echo "Creating version tag: $VERSION"
-            # DockerHub
+            # DockerHub - 创建版本标签
             docker buildx imagetools create -t endlessjy/lunatv:$VERSION \
               $(printf 'endlessjy/lunatv@sha256:%s ' *)
-            # GitHub Container Registry
+            # GitHub Container Registry - 创建版本标签
             docker buildx imagetools create -t ghcr.io/$OWNER/lunatv:$VERSION \
+              $(printf 'ghcr.io/'$OWNER'/lunatv@sha256:%s ' *)
+
+            echo "Creating latest tag pointing to version: $VERSION"
+            # DockerHub - 创建latest标签指向当前版本
+            docker buildx imagetools create -t endlessjy/lunatv:latest \
+              $(printf 'endlessjy/lunatv@sha256:%s ' *)
+            # GitHub Container Registry - 创建latest标签指向当前版本
+            docker buildx imagetools create -t ghcr.io/$OWNER/lunatv:latest \
               $(printf 'ghcr.io/'$OWNER'/lunatv@sha256:%s ' *)
           fi
 
-          # 如果是Git标签推送
+          # 如果是Git标签推送，创建对应版本标签并更新latest
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             GIT_TAG="${{ github.ref_name }}"
             TAG_VERSION="${GIT_TAG#v}"
-            echo "Creating Git tag: $TAG_VERSION"
-            # DockerHub
+            echo "Creating Git tag version: $TAG_VERSION"
+            # DockerHub - 创建Git标签版本
             docker buildx imagetools create -t endlessjy/lunatv:$TAG_VERSION \
               $(printf 'endlessjy/lunatv@sha256:%s ' *)
-            # GitHub Container Registry
+            # GitHub Container Registry - 创建Git标签版本
             docker buildx imagetools create -t ghcr.io/$OWNER/lunatv:$TAG_VERSION \
+              $(printf 'ghcr.io/'$OWNER'/lunatv@sha256:%s ' *)
+
+            echo "Updating latest tag to point to Git tag version: $TAG_VERSION"
+            # 更新latest标签指向Git标签版本
+            # DockerHub
+            docker buildx imagetools create -t endlessjy/lunatv:latest \
+              $(printf 'endlessjy/lunatv@sha256:%s ' *)
+            # GitHub Container Registry
+            docker buildx imagetools create -t ghcr.io/$OWNER/lunatv:latest \
               $(printf 'ghcr.io/'$OWNER'/lunatv@sha256:%s ' *)
           fi
 
-          # 创建输入标签或latest
-          echo "Creating tag: $INPUT_TAG"
-          # DockerHub
-          docker buildx imagetools create -t endlessjy/lunatv:$INPUT_TAG \
-            $(printf 'endlessjy/lunatv@sha256:%s ' *)
-          # GitHub Container Registry
-          docker buildx imagetools create -t ghcr.io/$OWNER/lunatv:$INPUT_TAG \
-            $(printf 'ghcr.io/'$OWNER'/lunatv@sha256:%s ' *)
+          # 如果是手动触发且指定了非latest标签，创建该标签（但不更新latest）
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "$INPUT_TAG" != "latest" ]]; then
+            echo "Creating manual tag: $INPUT_TAG"
+            # DockerHub
+            docker buildx imagetools create -t endlessjy/lunatv:$INPUT_TAG \
+              $(printf 'endlessjy/lunatv@sha256:%s ' *)
+            # GitHub Container Registry
+            docker buildx imagetools create -t ghcr.io/$OWNER/lunatv:$INPUT_TAG \
+              $(printf 'ghcr.io/'$OWNER'/lunatv@sha256:%s ' *)
+          fi
 
   cleanup-refresh:
     runs-on: ubuntu-latest
