@@ -298,11 +298,11 @@ function DoubanPageClient() {
               id: item.id?.toString() || '',
               title: item.name_cn || item.name,
               poster:
-                item.images?.large?.replace('http://', 'https://') ||
-                item.images?.common?.replace('http://', 'https://') ||
-                item.images?.medium?.replace('http://', 'https://') ||
-                item.images?.small?.replace('http://', 'https://') ||
-                item.images?.grid?.replace('http://', 'https://') ||
+                item.images?.large?.replace(/^http:\/\//, 'https://') ||
+                item.images?.common?.replace(/^http:\/\//, 'https://') ||
+                item.images?.medium?.replace(/^http:\/\//, 'https://') ||
+                item.images?.small?.replace(/^http:\/\//, 'https://') ||
+                item.images?.grid?.replace(/^http:\/\//, 'https://') ||
                 '/fallback-image.jpg',
               rate: item.rating?.score?.toFixed(1) || '',
               year: item.air_date?.split('-')?.[0] || '',
