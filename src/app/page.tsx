@@ -379,11 +379,11 @@ function HomeClient() {
                             from='douban'
                             title={anime.name_cn || anime.name}
                             poster={
-                              anime.images?.large?.replace('http://', 'https://') ||
-                              anime.images?.common?.replace('http://', 'https://') ||
-                              anime.images?.medium?.replace('http://', 'https://') ||
-                              anime.images?.small?.replace('http://', 'https://') ||
-                              anime.images?.grid?.replace('http://', 'https://') ||
+                              anime.images?.large?.replace(/^http:\/\//, 'https://') ||
+                              anime.images?.common?.replace(/^http:\/\//, 'https://') ||
+                              anime.images?.medium?.replace(/^http:\/\//, 'https://') ||
+                              anime.images?.small?.replace(/^http:\/\//, 'https://') ||
+                              anime.images?.grid?.replace(/^http:\/\//, 'https://') ||
                               '/fallback-image.jpg'
                             }
                             douban_id={anime.id}
