@@ -7,11 +7,31 @@ const nextConfig = {
     dirs: ['src'],
   },
 
-  reactStrictMode: false,
-  swcMinify: false,
+  reactStrictMode: true,
+  swcMinify: true,
 
   experimental: {
     instrumentationHook: process.env.NODE_ENV === 'production',
+  },
+
+  // Add optimization for chunk loading
+  generateBuildId: async () => {
+    return 'build-' + Date.now();
+  },
+
+  // Optimize asset loading
+  async headers() {
+    return [
+      {
+        source: '/_next/static/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+    ];
   },
 
   // Uncoment to add domain whitelist
