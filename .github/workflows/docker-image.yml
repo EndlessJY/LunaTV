@@ -9,11 +9,10 @@ on:
         default: 'latest'
         type: string
   push:
-    branches: [ main, master ]
     tags:
       - 'v*'
   pull_request:
-    branches: [ main, master ]
+    branches: [ master ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -159,8 +158,8 @@ jobs:
           INPUT_TAG="${{ github.event.inputs.tag || 'latest' }}"
           OWNER="${{ steps.lowercase.outputs.owner }}"
 
-          # 如果是主分支推送，创建版本标签和latest标签
-          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/master" ]]; then
+          # 如果是master分支推送，创建版本标签和latest标签
+          if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
             echo "Creating version tag: $VERSION"
             # DockerHub - 创建版本标签
             docker buildx imagetools create -t endlessjy/lunatv:$VERSION \
