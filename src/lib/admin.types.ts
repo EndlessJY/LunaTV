@@ -19,12 +19,15 @@ export interface AdminConfig {
   };
   UserConfig: {
     AllowRegister: boolean;
+    RequireInviteCodeForRegister?: boolean;
+    ExpiredGracePeriodDays?: number;
     Users: {
       username: string;
       role: 'user' | 'admin' | 'owner';
       banned?: boolean;
       enabledApis?: string[]; // 优先级高于tags限制
       tags?: string[]; // 多 tags 取并集限制
+      expiresAt?: string;
     }[];
     Tags?: {
       name: string;

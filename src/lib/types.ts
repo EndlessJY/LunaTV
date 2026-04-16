@@ -66,6 +66,12 @@ export interface IStorage {
   getAdminConfig(): Promise<AdminConfig | null>;
   setAdminConfig(config: AdminConfig): Promise<void>;
 
+  // 邀请码相关
+  getInviteCode(code: string): Promise<InviteCodeRecord | null>;
+  getAllInviteCodes(): Promise<InviteCodeRecord[]>;
+  setInviteCode(record: InviteCodeRecord): Promise<void>;
+  deleteInviteCode(code: string): Promise<void>;
+
   // 跳过片头片尾配置相关
   getSkipConfig(
     userName: string,
@@ -121,4 +127,20 @@ export interface SkipConfig {
   enable: boolean; // 是否启用跳过片头片尾
   intro_time: number; // 片头时间（秒）
   outro_time: number; // 片尾时间（秒）
+}
+
+// 邀请码状态
+export type InviteCodeStatus = 'active' | 'used' | 'disabled';
+
+// 邀请码记录结构
+export interface InviteCodeRecord {
+  code: string;
+  status: InviteCodeStatus;
+  inviteExpiresAt: string;
+  accountDurationDays: number;
+  createdAt: string;
+  createdBy: string;
+  note?: string;
+  usedBy?: string;
+  usedAt?: string;
 }

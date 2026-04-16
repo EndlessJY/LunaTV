@@ -221,6 +221,8 @@ async function getInitConfig(configFile: string, subConfig: {
     },
     UserConfig: {
       AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',
+      RequireInviteCodeForRegister: false,
+      ExpiredGracePeriodDays: 10,
       Users: [],
     },
     SourceConfig: [],
@@ -317,10 +319,29 @@ export async function getConfig(): Promise<AdminConfig> {
 export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
   // 确保必要的属性存在和初始化
   if (!adminConfig.UserConfig) {
-    adminConfig.UserConfig = { AllowRegister: false, Users: [] };
+    adminConfig.UserConfig = {
+      AllowRegister: false,
+      RequireInviteCodeForRegister: false,
+      ExpiredGracePeriodDays: 10,
+      Users: [],
+    };
   }
   if (!adminConfig.UserConfig.Users || !Array.isArray(adminConfig.UserConfig.Users)) {
     adminConfig.UserConfig.Users = [];
+  }
+  if (typeof adminConfig.UserConfig.RequireInviteCodeForRegister !== 'boolean') {
+    adminConfig.UserConfig.RequireInviteCodeForRegister = false;
+  }
+  if (
+    typeof adminConfig.UserConfig.ExpiredGracePeriodDays !== 'number' ||
+    !Number.isFinite(adminConfig.UserConfig.ExpiredGracePeriodDays)
+  ) {
+    adminConfig.UserConfig.ExpiredGracePeriodDays = 10;
+  } else {
+    adminConfig.UserConfig.ExpiredGracePeriodDays = Math.max(
+      1,
+      Math.floor(adminConfig.UserConfig.ExpiredGracePeriodDays)
+    );
   }
   if (!adminConfig.SourceConfig || !Array.isArray(adminConfig.SourceConfig)) {
     adminConfig.SourceConfig = [];
@@ -352,6 +373,9 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     if (user.role === 'owner') {
       user.role = 'user';
     }
+    if (typeof user.expiresAt !== 'string' || user.expiresAt.trim() === '') {
+      user.expiresAt = undefined;
+    }
   });
   // 重新添加回站长
   adminConfig.UserConfig.Users.unshift({
@@ -360,6 +384,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     banned: false,
     enabledApis: originOwnerCfg?.enabledApis || undefined,
     tags: originOwnerCfg?.tags || undefined,
+    expiresAt: undefined,
   });
 
   // 采集源去重
