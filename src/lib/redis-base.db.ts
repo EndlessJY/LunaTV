@@ -3,7 +3,13 @@
 import { createClient, RedisClientType } from 'redis';
 
 import { AdminConfig } from './admin.types';
-import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
+import {
+  Favorite,
+  IStorage,
+  InviteCodeRecord,
+  PlayRecord,
+  SkipConfig,
+} from './types';
 
 // 搜索历史最大条数
 const SEARCH_HISTORY_LIMIT = 20;
@@ -150,6 +156,32 @@ export abstract class BaseRedisStorage implements IStorage {
     this.withRetry = createRetryWrapper(config.clientName, () => this.client);
   }
 
+  private async scanKeys(pattern: string, count = 200): Promise<string[]> {
+    let cursor = 0;
+    const keys: string[] = [];
+
+    do {
+      const result = await this.withRetry(() =>
+        this.client.scan(cursor, { MATCH: pattern, COUNT: count })
+      );
+      cursor = result.cursor;
+      if (result.keys.length > 0) {
+        keys.push(...result.keys);
+      }
+    } while (cursor !== 0);
+
+    return keys;
+  }
+
+  private safeParseJson<T>(raw: string, context: string): T | null {
+    try {
+      return JSON.parse(raw) as T;
+    } catch (error) {
+      console.warn(`Invalid JSON for ${context}, skipping record:`, error);
+      return null;
+    }
+  }
+
   // ---------- 播放记录 ----------
   private prKey(user: string, key: string) {
     return `u:${user}:pr:${key}`; // u:username:pr:source+id
@@ -162,7 +194,8 @@ export abstract class BaseRedisStorage implements IStorage {
     const val = await this.withRetry(() =>
       this.client.get(this.prKey(userName, key))
     );
-    return val ? (JSON.parse(val) as PlayRecord) : null;
+    if (!val) return null;
+    return this.safeParseJson<PlayRecord>(val, `play record ${userName}/${key}`);
   }
 
   async setPlayRecord(
@@ -179,14 +212,17 @@ export abstract class BaseRedisStorage implements IStorage {
     userName: string
   ): Promise<Record<string, PlayRecord>> {
     const pattern = `u:${userName}:pr:*`;
-    const keys: string[] = await this.withRetry(() => this.client.keys(pattern));
+    const keys = await this.scanKeys(pattern);
     if (keys.length === 0) return {};
     const values = await this.withRetry(() => this.client.mGet(keys));
     const result: Record<string, PlayRecord> = {};
     keys.forEach((fullKey: string, idx: number) => {
       const raw = values[idx];
       if (raw) {
-        const rec = JSON.parse(raw) as PlayRecord;
+        const rec = this.safeParseJson<PlayRecord>(raw, `play record ${fullKey}`);
+        if (!rec) {
+          return;
+        }
         // 截取 source+id 部分
         const keyPart = ensureString(fullKey.replace(`u:${userName}:pr:`, ''));
         result[keyPart] = rec;
@@ -208,7 +244,8 @@ export abstract class BaseRedisStorage implements IStorage {
     const val = await this.withRetry(() =>
       this.client.get(this.favKey(userName, key))
     );
-    return val ? (JSON.parse(val) as Favorite) : null;
+    if (!val) return null;
+    return this.safeParseJson<Favorite>(val, `favorite ${userName}/${key}`);
   }
 
   async setFavorite(
@@ -223,14 +260,17 @@ export abstract class BaseRedisStorage implements IStorage {
 
   async getAllFavorites(userName: string): Promise<Record<string, Favorite>> {
     const pattern = `u:${userName}:fav:*`;
-    const keys: string[] = await this.withRetry(() => this.client.keys(pattern));
+    const keys = await this.scanKeys(pattern);
     if (keys.length === 0) return {};
     const values = await this.withRetry(() => this.client.mGet(keys));
     const result: Record<string, Favorite> = {};
     keys.forEach((fullKey: string, idx: number) => {
       const raw = values[idx];
       if (raw) {
-        const fav = JSON.parse(raw) as Favorite;
+        const fav = this.safeParseJson<Favorite>(raw, `favorite ${fullKey}`);
+        if (!fav) {
+          return;
+        }
         const keyPart = ensureString(fullKey.replace(`u:${userName}:fav:`, ''));
         result[keyPart] = fav;
       }
@@ -288,27 +328,21 @@ export abstract class BaseRedisStorage implements IStorage {
 
     // 删除播放记录
     const playRecordPattern = `u:${userName}:pr:*`;
-    const playRecordKeys = await this.withRetry(() =>
-      this.client.keys(playRecordPattern)
-    );
+    const playRecordKeys = await this.scanKeys(playRecordPattern);
     if (playRecordKeys.length > 0) {
       await this.withRetry(() => this.client.del(playRecordKeys));
     }
 
     // 删除收藏夹
     const favoritePattern = `u:${userName}:fav:*`;
-    const favoriteKeys = await this.withRetry(() =>
-      this.client.keys(favoritePattern)
-    );
+    const favoriteKeys = await this.scanKeys(favoritePattern);
     if (favoriteKeys.length > 0) {
       await this.withRetry(() => this.client.del(favoriteKeys));
     }
 
     // 删除跳过片头片尾配置
     const skipConfigPattern = `u:${userName}:skip:*`;
-    const skipConfigKeys = await this.withRetry(() =>
-      this.client.keys(skipConfigPattern)
-    );
+    const skipConfigKeys = await this.scanKeys(skipConfigPattern);
     if (skipConfigKeys.length > 0) {
       await this.withRetry(() => this.client.del(skipConfigKeys));
     }
@@ -348,7 +382,7 @@ export abstract class BaseRedisStorage implements IStorage {
 
   // ---------- 获取全部用户 ----------
   async getAllUsers(): Promise<string[]> {
-    const keys = await this.withRetry(() => this.client.keys('u:*:pwd'));
+    const keys = await this.scanKeys('u:*:pwd');
     return keys
       .map((k) => {
         const match = k.match(/^u:(.+?):pwd$/);
@@ -364,13 +398,65 @@ export abstract class BaseRedisStorage implements IStorage {
 
   async getAdminConfig(): Promise<AdminConfig | null> {
     const val = await this.withRetry(() => this.client.get(this.adminConfigKey()));
-    return val ? (JSON.parse(val) as AdminConfig) : null;
+    if (!val) return null;
+    return this.safeParseJson<AdminConfig>(val, 'admin config');
   }
 
   async setAdminConfig(config: AdminConfig): Promise<void> {
     await this.withRetry(() =>
       this.client.set(this.adminConfigKey(), JSON.stringify(config))
     );
+  }
+
+  // ---------- 邀请码 ----------
+  private inviteCodeKey(code: string) {
+    return `invite:${code}`;
+  }
+
+  private parseInviteRecord(raw: string): InviteCodeRecord | null {
+    return this.safeParseJson<InviteCodeRecord>(raw, 'invite record');
+  }
+
+  async getInviteCode(code: string): Promise<InviteCodeRecord | null> {
+    const val = await this.withRetry(() =>
+      this.client.get(this.inviteCodeKey(code))
+    );
+    if (!val) {
+      return null;
+    }
+    return this.parseInviteRecord(val);
+  }
+
+  async getAllInviteCodes(): Promise<InviteCodeRecord[]> {
+    const keys = await this.scanKeys('invite:*');
+    if (keys.length === 0) {
+      return [];
+    }
+
+    const values = await this.withRetry(() => this.client.mGet(keys));
+    const records: InviteCodeRecord[] = [];
+
+    values.forEach((value) => {
+      if (typeof value !== 'string') {
+        return;
+      }
+      const parsed = this.parseInviteRecord(value);
+      if (parsed) {
+        records.push(parsed);
+      }
+    });
+
+    return records;
+  }
+
+  async setInviteCode(record: InviteCodeRecord): Promise<void> {
+    await this.withRetry(() =>
+      this.client.set(this.inviteCodeKey(record.code), JSON.stringify(record))
+    );
+  }
+
+  async deleteInviteCode(code: string): Promise<void> {
+    await this.withRetry(() => this.client.del(this.inviteCodeKey(code)));
   }
 
   // ---------- 跳过片头片尾配置 ----------
@@ -386,7 +472,11 @@ export abstract class BaseRedisStorage implements IStorage {
     const val = await this.withRetry(() =>
       this.client.get(this.skipConfigKey(userName, source, id))
     );
-    return val ? (JSON.parse(val) as SkipConfig) : null;
+    if (!val) return null;
+    return this.safeParseJson<SkipConfig>(
+      val,
+      `skip config ${userName}/${source}+${id}`
+    );
   }
 
   async setSkipConfig(
@@ -417,7 +507,7 @@ export abstract class BaseRedisStorage implements IStorage {
     userName: string
   ): Promise<{ [key: string]: SkipConfig }> {
     const pattern = `u:${userName}:skip:*`;
-    const keys = await this.withRetry(() => this.client.keys(pattern));
+    const keys = await this.scanKeys(pattern);
 
     if (keys.length === 0) {
       return {};
@@ -435,7 +525,13 @@ export abstract class BaseRedisStorage implements IStorage {
         const match = key.match(/^u:.+?:skip:(.+)$/);
         if (match) {
           const sourceAndId = match[1];
-          configs[sourceAndId] = JSON.parse(value as string) as SkipConfig;
+          const parsed = this.safeParseJson<SkipConfig>(
+            value,
+            `skip config ${key}`
+          );
+          if (parsed) {
+            configs[sourceAndId] = parsed;
+          }
         }
       }
     });
