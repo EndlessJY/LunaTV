@@ -10,6 +10,7 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 
+import { useAuthGate } from '@/components/AuthGateProvider';
 import ScrollableRow from '@/components/ScrollableRow';
 import VideoCard from '@/components/VideoCard';
 
@@ -18,6 +19,7 @@ interface ContinueWatchingProps {
 }
 
 export default function ContinueWatching({ className }: ContinueWatchingProps) {
+  const { ensureAuthorized } = useAuthGate();
   const [playRecords, setPlayRecords] = useState<
     (PlayRecord & { key: string })[]
   >([]);
@@ -95,6 +97,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
           <button
             className='text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
             onClick={async () => {
+              if (!(await ensureAuthorized('write'))) return;
               await clearAllPlayRecords();
               setPlayRecords([]);
             }}

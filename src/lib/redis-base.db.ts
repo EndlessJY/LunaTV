@@ -413,6 +413,10 @@ export abstract class BaseRedisStorage implements IStorage {
     return `invite:${code}`;
   }
 
+  private inviteLockKey(code: string) {
+    return `invite-lock:${code}`;
+  }
+
   private parseInviteRecord(raw: string): InviteCodeRecord | null {
     return this.safeParseJson<InviteCodeRecord>(raw, 'invite record');
   }
@@ -457,6 +461,24 @@ export abstract class BaseRedisStorage implements IStorage {
 
   async deleteInviteCode(code: string): Promise<void> {
     await this.withRetry(() => this.client.del(this.inviteCodeKey(code)));
+  }
+
+  async acquireInviteCodeLock(code: string, token: string): Promise<boolean> {
+    const result = await this.withRetry(() =>
+      this.client.set(this.inviteLockKey(code), token, {
+        NX: true,
+        EX: 30,
+      })
+    );
+    return result === 'OK';
+  }
+
+  async releaseInviteCodeLock(code: string, token: string): Promise<void> {
+    const lockKey = this.inviteLockKey(code);
+    const currentToken = await this.withRetry(() => this.client.get(lockKey));
+    if (currentToken === token) {
+      await this.withRetry(() => this.client.del(lockKey));
+    }
   }
 
   // ---------- 跳过片头片尾配置 ----------

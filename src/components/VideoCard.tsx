@@ -24,6 +24,7 @@ import {
 import { processImageUrl } from '@/lib/utils';
 import { useLongPress } from '@/hooks/useLongPress';
 
+import { useAuthGate } from '@/components/AuthGateProvider';
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
 import MobileActionSheet from '@/components/MobileActionSheet';
 
@@ -80,6 +81,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(function VideoCard
   ref
 ) {
   const router = useRouter();
+  const { ensureAuthorized } = useAuthGate();
   const [favorited, setFavorited] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showMobileActions, setShowMobileActions] = useState(false);
@@ -160,6 +162,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(function VideoCard
       e.preventDefault();
       e.stopPropagation();
       if (from === 'douban' || !actualSource || !actualId) return;
+      if (!(await ensureAuthorized('favorite'))) return;
 
       try {
         // 确定当前收藏状态
@@ -212,6 +215,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(function VideoCard
       e.preventDefault();
       e.stopPropagation();
       if (from !== 'playrecord' || !actualSource || !actualId) return;
+      if (!(await ensureAuthorized('write'))) return;
       try {
         await deletePlayRecord(actualSource, actualId);
         onDelete?.();

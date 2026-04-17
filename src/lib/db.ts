@@ -242,6 +242,27 @@ export class DbManager {
     }
   }
 
+  async acquireInviteCodeLock(code: string, token: string): Promise<boolean> {
+    const storage = this.storage;
+    if (
+      storage &&
+      typeof (storage as any).acquireInviteCodeLock === 'function'
+    ) {
+      return (storage as any).acquireInviteCodeLock(code, token);
+    }
+    return false;
+  }
+
+  async releaseInviteCodeLock(code: string, token: string): Promise<void> {
+    const storage = this.storage;
+    if (
+      storage &&
+      typeof (storage as any).releaseInviteCodeLock === 'function'
+    ) {
+      await (storage as any).releaseInviteCodeLock(code, token);
+    }
+  }
+
   // ---------- 跳过片头片尾配置 ----------
   async getSkipConfig(
     userName: string,

@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
+import { clearGuestMode } from '@/lib/db.client';
 import { CURRENT_VERSION } from '@/lib/version';
 import { checkForUpdates, UpdateStatus } from '@/lib/version_check';
 
@@ -263,6 +264,7 @@ export const UserMenu: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
+      clearGuestMode();
     } catch (error) {
       console.error('注销请求失败:', error);
     }

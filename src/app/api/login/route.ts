@@ -1,8 +1,10 @@
 /* eslint-disable no-console,@typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 
+import { serializeAuthSessionPayload } from '@/lib/auth-session';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
+import { getMembershipState } from '@/lib/member';
 
 export const runtime = 'nodejs';
 
@@ -14,6 +16,8 @@ const STORAGE_TYPE =
     | 'upstash'
     | 'kvrocks'
     | undefined) || 'localstorage';
+
+const AUTH_COOKIE_DAYS = 7;
 
 // 生成签名
 async function generateSignature(
@@ -42,29 +46,46 @@ async function generateSignature(
     .join('');
 }
 
-// 生成认证Cookie（带签名）
-async function generateAuthCookie(
-  username?: string,
-  password?: string,
-  role?: 'owner' | 'admin' | 'user',
-  includePassword = false
-): Promise<string> {
-  const authData: any = { role: role || 'user' };
-
-  // 只在需要时包含 password
-  if (includePassword && password) {
-    authData.password = password;
+function setAuthCookie(
+  request: NextRequest,
+  response: NextResponse,
+  cookieValue: string,
+  expires?: Date
+) {
+  const cookieExpires = expires || new Date();
+  if (!expires) {
+    cookieExpires.setDate(cookieExpires.getDate() + AUTH_COOKIE_DAYS);
   }
+  const forwardedProto = request.headers.get('x-forwarded-proto');
+  const isSecure =
+    request.nextUrl.protocol === 'https:' || forwardedProto === 'https';
 
-  if (username && process.env.PASSWORD) {
-    authData.username = username;
-    // 使用密码作为密钥对用户名进行签名
-    const signature = await generateSignature(username, process.env.PASSWORD);
-    authData.signature = signature;
-    authData.timestamp = Date.now(); // 添加时间戳防重放攻击
-  }
+  response.cookies.set('auth', cookieValue, {
+    path: '/',
+    expires: cookieExpires,
+    sameSite: 'lax',
+    httpOnly: false,
+    secure: isSecure,
+  });
+}
 
-  return encodeURIComponent(JSON.stringify(authData));
+async function createSignedAuthCookieValue(input: {
+  username: string;
+  role: 'owner' | 'admin' | 'user';
+  membershipStatus: 'active' | 'expired';
+  membershipExpiresAt?: string;
+}): Promise<string> {
+  const signature = await generateSignature(
+    input.username,
+    process.env.PASSWORD || ''
+  );
+  return serializeAuthSessionPayload({
+    username: input.username,
+    signature,
+    role: input.role,
+    membershipStatus: input.membershipStatus,
+    membershipExpiresAt: input.membershipExpiresAt,
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -78,13 +99,7 @@ export async function POST(req: NextRequest) {
         const response = NextResponse.json({ ok: true });
 
         // 清除可能存在的认证cookie
-        response.cookies.set('auth', '', {
-          path: '/',
-          expires: new Date(0),
-          sameSite: 'lax', // 改为 lax 以支持 PWA
-          httpOnly: false, // PWA 需要客户端可访问
-          secure: false, // 根据协议自动设置
-        });
+        setAuthCookie(req, response, '', new Date(0));
 
         return response;
       }
@@ -103,22 +118,11 @@ export async function POST(req: NextRequest) {
 
       // 验证成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(
-        undefined,
+      const cookieValue = serializeAuthSessionPayload({
         password,
-        'user',
-        true
-      ); // localstorage 模式包含 password
-      const expires = new Date();
-      expires.setDate(expires.getDate() + 7); // 7天过期
-
-      response.cookies.set('auth', cookieValue, {
-        path: '/',
-        expires,
-        sameSite: 'lax', // 改为 lax 以支持 PWA
-        httpOnly: false, // PWA 需要客户端可访问
-        secure: false, // 根据协议自动设置
+        role: 'user',
       });
+      setAuthCookie(req, response, cookieValue);
 
       return response;
     }
@@ -140,22 +144,12 @@ export async function POST(req: NextRequest) {
     ) {
       // 验证成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(
+      const cookieValue = await createSignedAuthCookieValue({
         username,
-        password,
-        'owner',
-        false
-      ); // 数据库模式不包含 password
-      const expires = new Date();
-      expires.setDate(expires.getDate() + 7); // 7天过期
-
-      response.cookies.set('auth', cookieValue, {
-        path: '/',
-        expires,
-        sameSite: 'lax', // 改为 lax 以支持 PWA
-        httpOnly: false, // PWA 需要客户端可访问
-        secure: false, // 根据协议自动设置
+        role: 'owner',
+        membershipStatus: 'active',
       });
+      setAuthCookie(req, response, cookieValue);
 
       return response;
     } else if (username === process.env.USERNAME) {
@@ -178,24 +172,45 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      const now = new Date().toISOString();
+      const role = user?.role || 'user';
+      const membershipExpiresAt = user?.expiresAt;
+      let membershipStatus: 'active' | 'expired' = 'active';
+
+      if (role !== 'owner' && membershipExpiresAt) {
+        const state = getMembershipState({
+          role,
+          expiresAt: membershipExpiresAt,
+          gracePeriodDays: config.UserConfig.ExpiredGracePeriodDays || 10,
+          now,
+        });
+        membershipStatus = state.status;
+
+        if (state.shouldDelete) {
+          await db.deleteUser(username);
+          const userIndex = config.UserConfig.Users.findIndex(
+            (entry) => entry.username === username
+          );
+          if (userIndex !== -1) {
+            config.UserConfig.Users.splice(userIndex, 1);
+            await db.saveAdminConfig(config);
+          }
+          return NextResponse.json(
+            { error: '账号已过期，已被删除' },
+            { status: 401 }
+          );
+        }
+      }
+
       // 验证成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(
+      const cookieValue = await createSignedAuthCookieValue({
         username,
-        password,
-        user?.role || 'user',
-        false
-      ); // 数据库模式不包含 password
-      const expires = new Date();
-      expires.setDate(expires.getDate() + 7); // 7天过期
-
-      response.cookies.set('auth', cookieValue, {
-        path: '/',
-        expires,
-        sameSite: 'lax', // 改为 lax 以支持 PWA
-        httpOnly: false, // PWA 需要客户端可访问
-        secure: false, // 根据协议自动设置
+        role,
+        membershipStatus,
+        membershipExpiresAt,
       });
+      setAuthCookie(req, response, cookieValue);
 
       return response;
     } catch (err) {

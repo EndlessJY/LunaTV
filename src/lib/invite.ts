@@ -22,7 +22,8 @@ function randomInviteCode(length = 8): string {
 
   while (output.length < length) {
     const entropy = randomBytes(length);
-    for (const byte of entropy) {
+    for (let index = 0; index < entropy.length; index += 1) {
+      const byte = entropy[index];
       if (byte > maxUnbiasedByte) {
         continue;
       }

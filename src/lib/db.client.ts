@@ -72,6 +72,7 @@ interface UserCacheStore {
 const PLAY_RECORDS_KEY = 'moontv_play_records';
 const FAVORITES_KEY = 'moontv_favorites';
 const SEARCH_HISTORY_KEY = 'moontv_search_history';
+const GUEST_MODE_KEY = 'moontv_guest_mode';
 
 // 缓存相关常量
 const CACHE_PREFIX = 'moontv_cache_';
@@ -454,7 +455,7 @@ if (typeof window !== 'undefined') {
 
 // ---- 工具函数 ----
 /**
- * 通用的 fetch 函数，处理 401 状态码自动跳转登录
+ * 通用的 fetch 函数，处理 401 状态码并触发当前页认证弹窗
  */
 async function fetchWithAuth(
   url: string,
@@ -462,22 +463,29 @@ async function fetchWithAuth(
 ): Promise<Response> {
   const res = await fetch(url, options);
   if (!res.ok) {
-    // 如果是 401 未授权，跳转到登录页面
     if (res.status === 401) {
-      // 调用 logout 接口
       try {
-        await fetch('/api/logout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        });
+        const authStatus = await getAuthStatus();
+        const reason: AuthGateReason =
+          authStatus.membershipStatus === 'expired' ||
+          authStatus.membershipStatus === 'removed'
+            ? authStatus.membershipStatus
+            : 'unauthenticated';
+        dispatchAuthGateRequested(reason);
+        throw new Error(
+          reason === 'expired'
+            ? '账号已过期'
+            : reason === 'removed'
+              ? '账号已被清理'
+              : '用户未授权'
+        );
       } catch (error) {
-        console.error('注销请求失败:', error);
+        if (error instanceof Error) {
+          throw error;
+        }
+        dispatchAuthGateRequested('unauthenticated');
+        throw new Error('用户未授权');
       }
-      const currentUrl = window.location.pathname + window.location.search;
-      const loginUrl = new URL('/login', window.location.origin);
-      loginUrl.searchParams.set('redirect', currentUrl);
-      window.location.href = loginUrl.toString();
-      throw new Error('用户未授权，已跳转到登录页面');
     }
     throw new Error(`请求 ${url} 失败: ${res.status}`);
   }
@@ -1341,6 +1349,55 @@ export type CacheUpdateEvent =
   | 'favoritesUpdated'
   | 'searchHistoryUpdated'
   | 'skipConfigsUpdated';
+
+export type AuthGateReason = 'unauthenticated' | 'expired' | 'removed';
+
+function dispatchAuthGateRequested(reason: AuthGateReason): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent('authGateRequested', {
+      detail: { reason },
+    })
+  );
+}
+
+async function getAuthStatus(): Promise<{
+  authenticated: boolean;
+  membershipStatus?: 'active' | 'expired' | 'removed' | null;
+}> {
+  const res = await fetch('/api/auth/status', {
+    cache: 'no-store',
+    credentials: 'same-origin',
+  });
+
+  if (!res.ok) {
+    return { authenticated: false };
+  }
+
+  return (await res.json()) as {
+    authenticated: boolean;
+    membershipStatus?: 'active' | 'expired' | 'removed' | null;
+  };
+}
+
+export function setGuestMode(enabled: boolean): void {
+  if (typeof window === 'undefined') return;
+  if (enabled) {
+    localStorage.setItem(GUEST_MODE_KEY, 'true');
+  } else {
+    localStorage.removeItem(GUEST_MODE_KEY);
+  }
+}
+
+export function getGuestMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem(GUEST_MODE_KEY) === 'true';
+}
+
+export function clearGuestMode(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(GUEST_MODE_KEY);
+}
 
 /**
  * 用于 React 组件监听数据更新的事件监听器

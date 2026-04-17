@@ -32,6 +32,7 @@ import {
   ExternalLink,
   FileText,
   FolderOpen,
+  KeyRound,
   Settings,
   Tv,
   Users,
@@ -45,6 +46,7 @@ import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 
 import DataMigration from '@/components/DataMigration';
+import { AdminInviteManager } from '@/components/AdminInviteManager';
 import PageLayout from '@/components/PageLayout';
 
 // 统一按钮样式系统
@@ -350,6 +352,8 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
   const { isLoading, withLoading } = useLoadingState();
   const [userSettings, setUserSettings] = useState({
     enableRegistration: false,
+    requireInviteCode: false,
+    expiredGracePeriodDays: 10,
   });
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [showChangePasswordForm, setShowChangePasswordForm] = useState(false);
@@ -405,6 +409,10 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
     if (config?.UserConfig) {
       setUserSettings({
         enableRegistration: config.UserConfig.AllowRegister,
+        requireInviteCode: Boolean(
+          config.UserConfig.RequireInviteCodeForRegister
+        ),
+        expiredGracePeriodDays: config.UserConfig.ExpiredGracePeriodDays || 10,
       });
     }
   }, [config]);
@@ -563,6 +571,62 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       });
       // revert toggle UI
       setUserSettings((prev) => ({ ...prev, enableRegistration: !value }));
+    }
+  };
+
+  const toggleRequireInviteCode = async (value: boolean) => {
+    try {
+      setUserSettings((prev) => ({ ...prev, requireInviteCode: value }));
+      const res = await fetch('/api/admin/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'setRequireInviteCodeForRegister',
+          requireInviteCodeForRegister: value,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `操作失败: ${res.status}`);
+      }
+
+      await refreshConfig();
+    } catch (err) {
+      showAlert({
+        type: 'error',
+        title: '操作失败',
+        message: err instanceof Error ? err.message : '操作失败',
+      });
+      setUserSettings((prev) => ({ ...prev, requireInviteCode: !value }));
+    }
+  };
+
+  const updateExpiredGracePeriodDays = async (value: number) => {
+    try {
+      setUserSettings((prev) => ({ ...prev, expiredGracePeriodDays: value }));
+      const res = await fetch('/api/admin/user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'setExpiredGracePeriodDays',
+          expiredGracePeriodDays: value,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `操作失败: ${res.status}`);
+      }
+
+      await refreshConfig();
+    } catch (err) {
+      showAlert({
+        type: 'error',
+        title: '操作失败',
+        message: err instanceof Error ? err.message : '操作失败',
+      });
+      await refreshConfig();
     }
   };
 
@@ -923,29 +987,86 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300 mb-3'>
           注册设置
         </h4>
-        <div className='flex items-center justify-between'>
-          <label
-            className={`text-gray-700 dark:text-gray-300
-              }`}
-          >
-            允许新用户注册
-          </label>
-          <button
-            onClick={() =>
-              toggleAllowRegister(!userSettings.enableRegistration)
-            }
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${userSettings.enableRegistration
-              ? 'bg-green-600'
-              : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${userSettings.enableRegistration
-                ? 'translate-x-6'
-                : 'translate-x-1'
+        <div className='space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900'>
+          <div className='flex items-center justify-between'>
+            <label className='text-gray-700 dark:text-gray-300'>
+              允许新用户注册
+            </label>
+            <button
+              onClick={() =>
+                toggleAllowRegister(!userSettings.enableRegistration)
+              }
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${userSettings.enableRegistration
+                ? 'bg-green-600'
+                : 'bg-gray-200 dark:bg-gray-700'
                 }`}
-            />
-          </button>
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${userSettings.enableRegistration
+                  ? 'translate-x-6'
+                  : 'translate-x-1'
+                  }`}
+              />
+            </button>
+          </div>
+
+          {role === 'owner' && (
+            <>
+              <div className='flex items-center justify-between'>
+                <label className='text-gray-700 dark:text-gray-300'>
+                  注册需要邀请码
+                </label>
+                <button
+                  onClick={() =>
+                    toggleRequireInviteCode(!userSettings.requireInviteCode)
+                  }
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${userSettings.requireInviteCode
+                    ? 'bg-green-600'
+                    : 'bg-gray-200 dark:bg-gray-700'
+                    }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${userSettings.requireInviteCode
+                      ? 'translate-x-6'
+                      : 'translate-x-1'
+                      }`}
+                  />
+                </button>
+              </div>
+
+              <div className='space-y-2'>
+                <label className='text-gray-700 dark:text-gray-300 text-sm'>
+                  过期宽限期天数
+                </label>
+                <div className='flex items-center gap-3'>
+                  <input
+                    type='number'
+                    min={1}
+                    max={3650}
+                    value={userSettings.expiredGracePeriodDays}
+                    onChange={(event) =>
+                      setUserSettings((prev) => ({
+                        ...prev,
+                        expiredGracePeriodDays: Number(event.target.value || 1),
+                      }))
+                    }
+                    className='w-28 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100'
+                  />
+                  <button
+                    type='button'
+                    onClick={() =>
+                      updateExpiredGracePeriodDays(
+                        userSettings.expiredGracePeriodDays
+                      )
+                    }
+                    className={buttonStyles.primarySmall}
+                  >
+                    保存
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -4573,6 +4694,7 @@ function AdminPageClient() {
   const [showResetConfigModal, setShowResetConfigModal] = useState(false);
   const [expandedTabs, setExpandedTabs] = useState<{ [key: string]: boolean }>({
     userConfig: false,
+    inviteConfig: false,
     videoSource: false,
     liveSource: false,
     siteConfig: false,
@@ -4739,6 +4861,22 @@ function AdminPageClient() {
                 refreshConfig={fetchConfig}
               />
             </CollapsibleTab>
+
+            {role === 'owner' && (
+              <CollapsibleTab
+                title='邀请码管理'
+                icon={
+                  <KeyRound
+                    size={20}
+                    className='text-gray-600 dark:text-gray-400'
+                  />
+                }
+                isExpanded={expandedTabs.inviteConfig || false}
+                onToggle={() => toggleTab('inviteConfig')}
+              >
+                <AdminInviteManager />
+              </CollapsibleTab>
+            )}
 
             {/* 视频源配置标签 */}
             <CollapsibleTab

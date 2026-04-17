@@ -71,6 +71,8 @@ export interface IStorage {
   getAllInviteCodes(): Promise<InviteCodeRecord[]>;
   setInviteCode(record: InviteCodeRecord): Promise<void>;
   deleteInviteCode(code: string): Promise<void>;
+  acquireInviteCodeLock(code: string, token: string): Promise<boolean>;
+  releaseInviteCodeLock(code: string, token: string): Promise<void>;
 
   // 跳过片头片尾配置相关
   getSkipConfig(

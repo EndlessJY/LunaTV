@@ -3,7 +3,13 @@
 import { Redis } from '@upstash/redis';
 
 import { AdminConfig } from './admin.types';
-import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
+import {
+  Favorite,
+  IStorage,
+  InviteCodeRecord,
+  PlayRecord,
+  SkipConfig,
+} from './types';
 
 // 搜索历史最大条数
 const SEARCH_HISTORY_LIMIT = 20;
@@ -55,6 +61,7 @@ async function withRetry<T>(
 
 export class UpstashRedisStorage implements IStorage {
   private client: Redis;
+  private static readonly INVITE_LOCK_TTL_SECONDS = 30;
 
   constructor() {
     this.client = getUpstashRedisClient();
@@ -275,6 +282,84 @@ export class UpstashRedisStorage implements IStorage {
 
   async setAdminConfig(config: AdminConfig): Promise<void> {
     await withRetry(() => this.client.set(this.adminConfigKey(), config));
+  }
+
+  // ---------- 邀请码 ----------
+  private inviteCodeKey(code: string) {
+    return `invite:${code}`;
+  }
+
+  private inviteLockKey(code: string) {
+    return `invite-lock:${code}`;
+  }
+
+  private parseInviteRecord(value: unknown): InviteCodeRecord | null {
+    if (!value) {
+      return null;
+    }
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed && typeof parsed === 'object') {
+          return parsed as InviteCodeRecord;
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    }
+    if (typeof value === 'object') {
+      return value as InviteCodeRecord;
+    }
+    return null;
+  }
+
+  async getInviteCode(code: string): Promise<InviteCodeRecord | null> {
+    const val = await withRetry(() =>
+      this.client.get(this.inviteCodeKey(code))
+    );
+    return this.parseInviteRecord(val);
+  }
+
+  async getAllInviteCodes(): Promise<InviteCodeRecord[]> {
+    const keys = await withRetry(() => this.client.keys('invite:*'));
+    if (keys.length === 0) return [];
+
+    const values = await withRetry(() => this.client.mget(keys));
+    return values
+      .map((item) => this.parseInviteRecord(item))
+      .filter((item): item is InviteCodeRecord => item !== null);
+  }
+
+  async setInviteCode(record: InviteCodeRecord): Promise<void> {
+    await withRetry(() =>
+      this.client.set(this.inviteCodeKey(record.code), record)
+    );
+  }
+
+  async deleteInviteCode(code: string): Promise<void> {
+    await withRetry(() => this.client.del(this.inviteCodeKey(code)));
+  }
+
+  async acquireInviteCodeLock(code: string, token: string): Promise<boolean> {
+    const lockKey = this.inviteLockKey(code);
+    const acquired = await withRetry(() => this.client.setnx(lockKey, token));
+    if (acquired !== 1) {
+      return false;
+    }
+
+    await withRetry(() =>
+      this.client.expire(lockKey, UpstashRedisStorage.INVITE_LOCK_TTL_SECONDS)
+    );
+    return true;
+  }
+
+  async releaseInviteCodeLock(code: string, token: string): Promise<void> {
+    const lockKey = this.inviteLockKey(code);
+    const currentToken = await withRetry(() => this.client.get(lockKey));
+    if (currentToken === token) {
+      await withRetry(() => this.client.del(lockKey));
+    }
   }
 
   // ---------- 跳过片头片尾配置 ----------

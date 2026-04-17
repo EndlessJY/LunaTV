@@ -24,6 +24,7 @@ import {
 import { SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
+import { useAuthGate } from '@/components/AuthGateProvider';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
 
@@ -45,6 +46,7 @@ interface WakeLockSentinel {
 function PlayPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { authStatus, ensureAuthorized, ready: authReady } = useAuthGate();
 
   // -----------------------------------------------------------------------------
   // 状态变量（State）
@@ -205,6 +207,11 @@ function PlayPageClient() {
 
   // Wake Lock 相关
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const canUseProtectedPlayback =
+    authReady &&
+    authStatus.authenticated &&
+    authStatus.membershipStatus !== 'expired' &&
+    authStatus.membershipStatus !== 'removed';
 
   // -----------------------------------------------------------------------------
   // 工具函数（Utils）
@@ -519,6 +526,7 @@ function PlayPageClient() {
     intro_time: number;
     outro_time: number;
   }) => {
+    if (!(await ensureAuthorized('write'))) return;
     if (!currentSourceRef.current || !currentIdRef.current) return;
 
     try {
@@ -855,6 +863,7 @@ function PlayPageClient() {
     newId: string,
     newTitle: string
   ) => {
+    if (!(await ensureAuthorized('play'))) return;
     try {
       // 显示换源加载状态
       setVideoLoadingStage('sourceChanging');
@@ -950,16 +959,19 @@ function PlayPageClient() {
   // ---------------------------------------------------------------------------
   // 处理集数切换
   const handleEpisodeChange = (episodeNumber: number) => {
-    if (episodeNumber >= 0 && episodeNumber < totalEpisodes) {
-      // 在更换集数前保存当前播放进度
-      if (artPlayerRef.current && artPlayerRef.current.paused) {
-        saveCurrentPlayProgress();
+    ensureAuthorized('play').then((allowed) => {
+      if (!allowed) return;
+      if (episodeNumber >= 0 && episodeNumber < totalEpisodes) {
+        if (artPlayerRef.current && artPlayerRef.current.paused) {
+          saveCurrentPlayProgress();
+        }
+        setCurrentEpisodeIndex(episodeNumber);
       }
-      setCurrentEpisodeIndex(episodeNumber);
-    }
+    });
   };
 
   const handlePreviousEpisode = () => {
+    if (!canUseProtectedPlayback) return;
     const d = detailRef.current;
     const idx = currentEpisodeIndexRef.current;
     if (d && d.episodes && idx > 0) {
@@ -971,6 +983,7 @@ function PlayPageClient() {
   };
 
   const handleNextEpisode = () => {
+    if (!canUseProtectedPlayback) return;
     const d = detailRef.current;
     const idx = currentEpisodeIndexRef.current;
     if (d && d.episodes && idx < d.episodes.length - 1) {
@@ -1076,6 +1089,9 @@ function PlayPageClient() {
   // ---------------------------------------------------------------------------
   // 保存播放进度
   const saveCurrentPlayProgress = async () => {
+    if (!canUseProtectedPlayback) {
+      return;
+    }
     if (
       !artPlayerRef.current ||
       !currentSourceRef.current ||
@@ -1196,6 +1212,7 @@ function PlayPageClient() {
 
   // 切换收藏
   const handleToggleFavorite = async () => {
+    if (!(await ensureAuthorized('favorite'))) return;
     if (
       !videoTitleRef.current ||
       !detailRef.current ||
@@ -1233,6 +1250,8 @@ function PlayPageClient() {
       !Hls ||
       !videoUrl ||
       loading ||
+      !authReady ||
+      !canUseProtectedPlayback ||
       currentEpisodeIndex === null ||
       !artRef.current
     ) {
@@ -1651,7 +1670,7 @@ function PlayPageClient() {
       console.error('创建播放器失败:', err);
       setError('播放器初始化失败');
     }
-  }, [Artplayer, Hls, videoUrl, loading, blockAdEnabled]);
+  }, [Artplayer, Hls, videoUrl, loading, blockAdEnabled, authReady, canUseProtectedPlayback]);
 
   // 当组件卸载时清理定时器、Wake Lock 和播放器资源
   useEffect(() => {
@@ -1898,8 +1917,36 @@ function PlayPageClient() {
                   className='bg-black w-full h-full rounded-xl overflow-hidden shadow-lg'
                 ></div>
 
+                {authReady && !canUseProtectedPlayback && (
+                  <div className='absolute inset-0 bg-black/80 rounded-xl flex items-center justify-center z-[450] px-6'>
+                    <div className='max-w-md text-center'>
+                      <h2 className='text-2xl font-semibold text-white'>
+                        {authStatus.membershipStatus === 'expired'
+                          ? '账号已过期'
+                          : '登录后即可播放'}
+                      </h2>
+                      <p className='mt-3 text-sm leading-6 text-gray-200'>
+                        {authStatus.membershipStatus === 'expired'
+                          ? '当前账号已过期，请续费或联系管理员获取新的邀请码后继续播放。'
+                          : '当前为游客模式。登录或注册后即可开始播放、切集和同步记录。'}
+                      </p>
+                      <button
+                        type='button'
+                        onClick={() => {
+                          ensureAuthorized('play');
+                        }}
+                        className='mt-6 rounded-xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-green-700'
+                      >
+                        {authStatus.membershipStatus === 'expired'
+                          ? '查看过期提示'
+                          : '登录后播放'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* 换源加载蒙层 */}
-                {isVideoLoading && (
+                {isVideoLoading && canUseProtectedPlayback && (
                   <div className='absolute inset-0 bg-black/85 backdrop-blur-sm rounded-xl flex items-center justify-center z-[500] transition-all duration-300'>
                     <div className='text-center max-w-md mx-auto px-6'>
                       {/* 动画影院图标 */}

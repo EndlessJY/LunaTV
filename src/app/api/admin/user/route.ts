@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getVerifiedAuthInfoFromCookie } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 
@@ -16,6 +16,8 @@ const ACTIONS = [
   'setAdmin',
   'cancelAdmin',
   'setAllowRegister',
+  'setRequireInviteCodeForRegister',
+  'setExpiredGracePeriodDays',
   'changePassword',
   'deleteUser',
   'updateUserApis',
@@ -38,7 +40,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const authInfo = getAuthInfoFromCookie(request);
+    const authInfo = await getVerifiedAuthInfoFromCookie(request);
     if (!authInfo || !authInfo.username) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -48,11 +50,15 @@ export async function POST(request: NextRequest) {
       targetUsername, // 目标用户名
       targetPassword, // 目标用户密码（仅在添加用户时需要）
       allowRegister,
+      requireInviteCodeForRegister,
+      expiredGracePeriodDays,
       action,
     } = body as {
       targetUsername?: string;
       targetPassword?: string;
       allowRegister?: boolean;
+      requireInviteCodeForRegister?: boolean;
+      expiredGracePeriodDays?: number;
       action?: (typeof ACTIONS)[number];
     };
 
@@ -60,12 +66,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
     }
 
-    if (action !== 'setAllowRegister' && !targetUsername && !['userGroup', 'batchUpdateUserGroups'].includes(action)) {
+    if (
+      ![
+        'setAllowRegister',
+        'setRequireInviteCodeForRegister',
+        'setExpiredGracePeriodDays',
+        'userGroup',
+        'batchUpdateUserGroups',
+      ].includes(action) &&
+      !targetUsername
+    ) {
       return NextResponse.json({ error: '缺少目标用户名' }, { status: 400 });
     }
 
     if (
       action !== 'setAllowRegister' &&
+      action !== 'setRequireInviteCodeForRegister' &&
+      action !== 'setExpiredGracePeriodDays' &&
       action !== 'changePassword' &&
       action !== 'deleteUser' &&
       action !== 'updateUserApis' &&
@@ -100,6 +117,8 @@ export async function POST(request: NextRequest) {
     // 查找目标用户条目（用户组操作和批量操作不需要）
     let targetEntry: any = null;
     let isTargetAdmin = false;
+    let runAfterConfigSave: (() => Promise<void>) | null = null;
+    let rollbackConfigOnPostSaveFailure: (() => Promise<void>) | null = null;
 
     if (!['userGroup', 'batchUpdateUserGroups'].includes(action) && targetUsername) {
       targetEntry = adminConfig.UserConfig.Users.find(
@@ -118,12 +137,47 @@ export async function POST(request: NextRequest) {
       isTargetAdmin = targetEntry?.role === 'admin';
     }
 
-    if (action === 'setAllowRegister') {
-      if (typeof allowRegister !== 'boolean') {
-        return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
+    if (
+      action === 'setAllowRegister' ||
+      action === 'setRequireInviteCodeForRegister' ||
+      action === 'setExpiredGracePeriodDays'
+    ) {
+      if (
+        (action === 'setRequireInviteCodeForRegister' ||
+          action === 'setExpiredGracePeriodDays') &&
+        operatorRole !== 'owner'
+      ) {
+        return NextResponse.json(
+          { error: '仅站长可配置会员设置' },
+          { status: 401 }
+        );
       }
-      adminConfig.UserConfig.AllowRegister = allowRegister;
-      // 保存后直接返回成功（走后面的统一保存逻辑）
+
+      if (action === 'setAllowRegister') {
+        if (typeof allowRegister !== 'boolean') {
+          return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
+        }
+        adminConfig.UserConfig.AllowRegister = allowRegister;
+      } else if (action === 'setRequireInviteCodeForRegister') {
+        if (typeof requireInviteCodeForRegister !== 'boolean') {
+          return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
+        }
+        adminConfig.UserConfig.RequireInviteCodeForRegister =
+          requireInviteCodeForRegister;
+      } else {
+        if (
+          typeof expiredGracePeriodDays !== 'number' ||
+          !Number.isInteger(expiredGracePeriodDays) ||
+          expiredGracePeriodDays < 1 ||
+          expiredGracePeriodDays > 3650
+        ) {
+          return NextResponse.json(
+            { error: '过期宽限期天数需为 1-3650 的整数' },
+            { status: 400 }
+          );
+        }
+        adminConfig.UserConfig.ExpiredGracePeriodDays = expiredGracePeriodDays;
+      }
     } else {
       switch (action) {
       case 'add': {
@@ -136,8 +190,6 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        await db.registerUser(targetUsername!, targetPassword);
-
         // 获取用户组信息
         const { userGroup } = body as { userGroup?: string };
 
@@ -155,8 +207,17 @@ export async function POST(request: NextRequest) {
         adminConfig.UserConfig.Users.push(newUser);
         targetEntry =
           adminConfig.UserConfig.Users[
-          adminConfig.UserConfig.Users.length - 1
+            adminConfig.UserConfig.Users.length - 1
           ];
+        runAfterConfigSave = async () => {
+          await db.registerUser(targetUsername!, targetPassword);
+        };
+        rollbackConfigOnPostSaveFailure = async () => {
+          adminConfig.UserConfig.Users = adminConfig.UserConfig.Users.filter(
+            (user) => user.username !== targetUsername
+          );
+          await db.saveAdminConfig(adminConfig);
+        };
         break;
       }
       case 'ban': {
@@ -296,15 +357,22 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        await db.deleteUser(targetUsername!);
-
-        // 从配置中移除用户
+        const removedUser = { ...targetEntry };
         const userIndex = adminConfig.UserConfig.Users.findIndex(
           (u) => u.username === targetUsername
         );
         if (userIndex > -1) {
           adminConfig.UserConfig.Users.splice(userIndex, 1);
         }
+        runAfterConfigSave = async () => {
+          await db.deleteUser(targetUsername!);
+        };
+        rollbackConfigOnPostSaveFailure = async () => {
+          if (userIndex > -1) {
+            adminConfig.UserConfig.Users.splice(userIndex, 0, removedUser);
+            await db.saveAdminConfig(adminConfig);
+          }
+        };
 
         break;
       }
@@ -319,6 +387,12 @@ export async function POST(request: NextRequest) {
         const { enabledApis } = body as { enabledApis?: string[] };
 
         // 权限检查：站长可配置所有人的采集源，管理员可配置普通用户和自己的采集源
+        if (targetEntry.role === 'owner' && operatorRole !== 'owner') {
+          return NextResponse.json(
+            { error: '仅站长可配置站长的采集源' },
+            { status: 401 }
+          );
+        }
         if (
           isTargetAdmin &&
           operatorRole !== 'owner' &&
@@ -413,6 +487,12 @@ export async function POST(request: NextRequest) {
         const { userGroups } = body as { userGroups: string[] };
 
         // 权限检查：站长可配置所有人的用户组，管理员可配置普通用户和自己的用户组
+        if (targetEntry.role === 'owner' && operatorRole !== 'owner') {
+          return NextResponse.json(
+            { error: '仅站长可配置站长的用户组' },
+            { status: 401 }
+          );
+        }
         if (
           isTargetAdmin &&
           operatorRole !== 'owner' &&
@@ -442,6 +522,9 @@ export async function POST(request: NextRequest) {
         if (operatorRole !== 'owner') {
           for (const targetUsername of usernames) {
             const targetUser = adminConfig.UserConfig.Users.find(u => u.username === targetUsername);
+            if (targetUser?.role === 'owner') {
+              return NextResponse.json({ error: '管理员无法操作站长' }, { status: 400 });
+            }
             if (targetUser && targetUser.role === 'admin' && targetUsername !== username) {
               return NextResponse.json({ error: `管理员无法操作其他管理员 ${targetUsername}` }, { status: 400 });
             }
@@ -471,6 +554,17 @@ export async function POST(request: NextRequest) {
     // 将更新后的配置写入数据库
     await db.saveAdminConfig(adminConfig);
 
+    if (runAfterConfigSave) {
+      try {
+        await runAfterConfigSave();
+      } catch (error) {
+        if (rollbackConfigOnPostSaveFailure) {
+          await rollbackConfigOnPostSaveFailure();
+        }
+        throw error;
+      }
+    }
+
     return NextResponse.json(
       { ok: true },
       {
@@ -484,7 +578,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: '用户管理操作失败',
-        details: (error as Error).message,
       },
       { status: 500 }
     );

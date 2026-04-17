@@ -17,9 +17,11 @@ import { SearchResult } from '@/lib/types';
 import PageLayout from '@/components/PageLayout';
 import SearchResultFilter, { SearchFilterCategory } from '@/components/SearchResultFilter';
 import SearchSuggestions from '@/components/SearchSuggestions';
+import { useAuthGate } from '@/components/AuthGateProvider';
 import VideoCard, { VideoCardHandle } from '@/components/VideoCard';
 
 function SearchPageClient() {
+  const { ensureAuthorized } = useAuthGate();
   // 搜索历史
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   // 返回顶部按钮显示状态
@@ -554,7 +556,11 @@ function SearchPageClient() {
       setShowSuggestions(false);
 
       // 保存到搜索历史 (事件监听会自动更新界面)
-      addSearchHistory(query);
+      ensureAuthorized('write').then((allowed) => {
+        if (allowed) {
+          addSearchHistory(query);
+        }
+      });
     } else {
       setShowResults(false);
       setShowSuggestions(false);
@@ -833,7 +839,11 @@ function SearchPageClient() {
                 {searchHistory.length > 0 && (
                   <button
                     onClick={() => {
-                      clearSearchHistory(); // 事件监听会自动更新界面
+                      ensureAuthorized('write').then((allowed) => {
+                        if (allowed) {
+                          clearSearchHistory();
+                        }
+                      });
                     }}
                     className='ml-3 text-sm text-gray-500 hover:text-red-500 transition-colors dark:text-gray-400 dark:hover:text-red-500'
                   >
@@ -861,7 +871,11 @@ function SearchPageClient() {
                       onClick={(e) => {
                         e.stopPropagation();
                         e.preventDefault();
-                        deleteSearchHistory(item); // 事件监听会自动更新界面
+                        ensureAuthorized('write').then((allowed) => {
+                          if (allowed) {
+                            deleteSearchHistory(item);
+                          }
+                        });
                       }}
                       className='absolute -top-1 -right-1 w-4 h-4 opacity-0 group-hover:opacity-100 bg-gray-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] transition-colors'
                     >
