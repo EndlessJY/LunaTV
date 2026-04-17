@@ -21,11 +21,15 @@ export function AdminInviteManager() {
   const [invites, setInvites] = useState<InviteRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [manualCode, setManualCode] = useState('');
-  const [inviteExpiresAt, setInviteExpiresAt] = useState('');
+  const [inviteExpiresDays, setInviteExpiresDays] = useState(30);
   const [accountDurationDays, setAccountDurationDays] = useState(30);
   const [note, setNote] = useState('');
   const [batchCount, setBatchCount] = useState(10);
+  const createInviteExpiresAt = () => {
+    const date = new Date();
+    date.setDate(date.getDate() + inviteExpiresDays);
+    return date.toISOString();
+  };
 
   const loadInvites = async () => {
     setLoading(true);
@@ -48,33 +52,13 @@ export function AdminInviteManager() {
     loadInvites().catch(() => undefined);
   }, []);
 
-  const submitManualInvite = async () => {
-    const response = await fetch('/api/admin/invite', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code: manualCode,
-        inviteExpiresAt,
-        accountDurationDays,
-        note: note || undefined,
-      }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.error || '创建邀请码失败');
-    }
-    setManualCode('');
-    setNote('');
-    await loadInvites();
-  };
-
   const submitBatchInvites = async () => {
     const response = await fetch('/api/admin/invite', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         count: batchCount,
-        inviteExpiresAt,
+        inviteExpiresAt: createInviteExpiresAt(),
         accountDurationDays,
         note: note || undefined,
       }),
@@ -113,56 +97,10 @@ export function AdminInviteManager() {
 
   return (
     <div className='space-y-6'>
-      <div className='grid gap-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900 md:grid-cols-2'>
+      <div className='rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900'>
         <div className='space-y-3'>
           <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-            手动添加邀请码
-          </h4>
-          <input
-            value={manualCode}
-            onChange={(event) => setManualCode(event.target.value)}
-            placeholder='邀请码'
-            className={inputClassName}
-          />
-          <input
-            type='datetime-local'
-            value={inviteExpiresAt}
-            onChange={(event) => setInviteExpiresAt(event.target.value)}
-            className={inputClassName}
-          />
-          <input
-            type='number'
-            min={1}
-            value={accountDurationDays}
-            onChange={(event) =>
-              setAccountDurationDays(Number(event.target.value || 1))
-            }
-            className={inputClassName}
-          />
-          <input
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder='备注（选填）'
-            className={inputClassName}
-          />
-          <button
-            type='button'
-            onClick={() => submitManualInvite().catch((submitError) => {
-              setError(
-                submitError instanceof Error
-                  ? submitError.message
-                  : '创建邀请码失败'
-              );
-            })}
-            className='rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700'
-          >
-            添加邀请码
-          </button>
-        </div>
-
-        <div className='space-y-3'>
-          <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-            批量生成邀请码
+            生成邀请码
           </h4>
           <input
             type='number'
@@ -170,12 +108,17 @@ export function AdminInviteManager() {
             max={200}
             value={batchCount}
             onChange={(event) => setBatchCount(Number(event.target.value || 1))}
+            placeholder='邀请码数量'
             className={inputClassName}
           />
           <input
-            type='datetime-local'
-            value={inviteExpiresAt}
-            onChange={(event) => setInviteExpiresAt(event.target.value)}
+            type='number'
+            min={1}
+            value={inviteExpiresDays}
+            onChange={(event) =>
+              setInviteExpiresDays(Number(event.target.value || 1))
+            }
+            placeholder='邀请码有效天数'
             className={inputClassName}
           />
           <input
@@ -185,12 +128,13 @@ export function AdminInviteManager() {
             onChange={(event) =>
               setAccountDurationDays(Number(event.target.value || 1))
             }
+            placeholder='账号时长'
             className={inputClassName}
           />
           <input
             value={note}
             onChange={(event) => setNote(event.target.value)}
-            placeholder='批次备注（选填）'
+            placeholder='备注()'
             className={inputClassName}
           />
           <button

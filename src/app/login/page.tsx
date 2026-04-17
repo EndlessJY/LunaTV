@@ -226,15 +226,15 @@ function LoginPageClient() {
                   {loading ? '登录中...' : '登录'}
                 </button>
               )}
-              <button
-                type='button'
-                onClick={() => {
-                  setGuestMode(true);
-                  router.replace('/');
-                }}
-                disabled={loading}
-                className='flex-1 inline-flex justify-center rounded-lg bg-gray-200 py-3 text-base font-semibold text-gray-700 shadow-lg transition-all duration-200 hover:bg-gray-300 dark:bg-zinc-700 dark:text-gray-100 dark:hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50'
-              >
+                <button
+                  type='button'
+                  onClick={() => {
+                    setGuestMode(true);
+                    window.location.href = '/';
+                  }}
+                  disabled={loading}
+                  className='flex-1 inline-flex justify-center rounded-lg bg-gray-200 py-3 text-base font-semibold text-gray-700 shadow-lg transition-all duration-200 hover:bg-gray-300 dark:bg-zinc-700 dark:text-gray-100 dark:hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50'
+                >
                 跳过
               </button>
             </div>
@@ -254,7 +254,7 @@ function LoginPageClient() {
                   type='button'
                   onClick={() => {
                     setGuestMode(true);
-                    router.replace('/');
+                    window.location.href = '/';
                   }}
                   disabled={loading}
                   className='inline-flex w-full justify-center rounded-lg bg-gray-200 py-3 text-base font-semibold text-gray-700 shadow-lg transition-all duration-200 hover:bg-gray-300 dark:bg-zinc-700 dark:text-gray-100 dark:hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50'
