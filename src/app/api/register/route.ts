@@ -244,7 +244,11 @@ export async function POST(req: NextRequest) {
         throw error;
       } finally {
         if (inviteLockCode && inviteLockToken) {
-          await db.releaseInviteCodeLock(inviteLockCode, inviteLockToken);
+          try {
+            await db.releaseInviteCodeLock(inviteLockCode, inviteLockToken);
+          } catch {
+            // ignore lock release failure after register flow completes
+          }
         }
       }
     } catch (err) {

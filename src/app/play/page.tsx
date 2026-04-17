@@ -1688,6 +1688,13 @@ function PlayPageClient() {
     };
   }, []);
 
+  useEffect(() => {
+    if (authReady && !canUseProtectedPlayback) {
+      cleanupPlayer();
+      releaseWakeLock();
+    }
+  }, [authReady, canUseProtectedPlayback]);
+
   if (loading) {
     return (
       <PageLayout activePath='/play'>

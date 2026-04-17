@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getVerifiedAuthInfoFromCookie } from '@/lib/auth';
+import { getAuthInfoFromCookie, getVerifiedAuthInfoFromCookie } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { getMembershipState } from '@/lib/member';
@@ -32,6 +32,20 @@ function clearAuthCookie(request: NextRequest, response: NextResponse) {
 
 export async function GET(request: NextRequest) {
   try {
+    const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+    if (storageType === 'localstorage') {
+      const authInfo = getAuthInfoFromCookie(request);
+      const authenticated =
+        Boolean(authInfo?.password) && authInfo?.password === process.env.PASSWORD;
+      return responseNoStore({
+        authenticated,
+        role: authenticated ? 'user' : null,
+        membershipStatus: authenticated ? 'active' : null,
+        membershipExpiresAt: null,
+        username: authenticated ? process.env.USERNAME || null : null,
+      });
+    }
+
     const authInfo = await getVerifiedAuthInfoFromCookie(request);
     if (!authInfo?.username) {
       return responseNoStore({

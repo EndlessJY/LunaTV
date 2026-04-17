@@ -187,13 +187,22 @@ export async function POST(req: NextRequest) {
         membershipStatus = state.status;
 
         if (state.shouldDelete) {
-          await db.deleteUser(username);
           const userIndex = config.UserConfig.Users.findIndex(
             (entry) => entry.username === username
           );
           if (userIndex !== -1) {
-            config.UserConfig.Users.splice(userIndex, 1);
+            const previousUsers = config.UserConfig.Users;
+            config.UserConfig.Users = config.UserConfig.Users.filter(
+              (entry) => entry.username !== username
+            );
             await db.saveAdminConfig(config);
+            try {
+              await db.deleteUser(username);
+            } catch (error) {
+              config.UserConfig.Users = previousUsers;
+              await db.saveAdminConfig(config);
+              throw error;
+            }
           }
           return NextResponse.json(
             { error: '账号已过期，已被删除' },
