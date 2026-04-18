@@ -196,9 +196,15 @@ jobs:
           create_manifest() {
             local image="$1"
             local tag="$2"
+            local refs=()
+            local digest
             echo "Creating manifest for ${image}:${tag}"
-            docker buildx imagetools create -t "${image}:${tag}" \
-              $(printf '%s@sha256:%s ' "$image" *)
+
+            for digest in *; do
+              refs+=("${image}@sha256:${digest}")
+            done
+
+            docker buildx imagetools create -t "${image}:${tag}" "${refs[@]}"
           }
 
           declare -a TAGS=()
