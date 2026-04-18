@@ -16,9 +16,10 @@ import VideoCard from '@/components/VideoCard';
 
 interface ContinueWatchingProps {
   className?: string;
+  isLoggedIn: boolean;
 }
 
-export default function ContinueWatching({ className }: ContinueWatchingProps) {
+export default function ContinueWatching({ className, isLoggedIn }: ContinueWatchingProps) {
   const { ensureAuthorized } = useAuthGate();
   const [playRecords, setPlayRecords] = useState<
     (PlayRecord & { key: string })[]
@@ -42,6 +43,13 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
   };
 
   useEffect(() => {
+    // 未登录时不请求播放记录
+    if (!isLoggedIn) {
+      setPlayRecords([]);
+      setLoading(false);
+      return;
+    }
+
     const fetchPlayRecords = async () => {
       try {
         setLoading(true);
@@ -68,7 +76,7 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
     );
 
     return unsubscribe;
-  }, []);
+  }, [isLoggedIn]);
 
   // 如果没有播放记录，则不渲染组件
   if (!loading && playRecords.length === 0) {

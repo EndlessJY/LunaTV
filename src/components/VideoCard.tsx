@@ -25,6 +25,7 @@ import { processImageUrl } from '@/lib/utils';
 import { useLongPress } from '@/hooks/useLongPress';
 
 import { useAuthGate } from '@/components/AuthGateProvider';
+import { AuthGateReason } from '@/lib/db.client';
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
 import MobileActionSheet from '@/components/MobileActionSheet';
 
@@ -81,7 +82,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(function VideoCard
   ref
 ) {
   const router = useRouter();
-  const { ensureAuthorized } = useAuthGate();
+  const { authStatus, ensureAuthorized } = useAuthGate();
   const [favorited, setFavorited] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showMobileActions, setShowMobileActions] = useState(false);
@@ -231,9 +232,22 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(function VideoCard
       // 直播内容跳转到直播页面
       const url = `/live?source=${actualSource.replace('live_', '')}&id=${actualId.replace('live_', '')}`;
       router.push(url);
-    } else if (from === 'douban' || (isAggregate && !actualSource && !actualId)) {
+    } else if (from === 'douban') {
+      // 首页/豆瓣来源：未登录时直接弹出登录对话框
+      if (!authStatus.authenticated) {
+        window.dispatchEvent(
+          new CustomEvent('authGateRequested', {
+            detail: { reason: 'play' as AuthGateReason },
+          })
+        );
+        return;
+      }
       const url = `/play?title=${encodeURIComponent(actualTitle.trim())}${actualYear ? `&year=${actualYear}` : ''
         }${actualSearchType ? `&stype=${actualSearchType}` : ''}${isAggregate ? '&prefer=true' : ''}${actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''}`;
+      router.push(url);
+    } else if (isAggregate && !actualSource && !actualId) {
+      const url = `/play?title=${encodeURIComponent(actualTitle.trim())}${actualYear ? `&year=${actualYear}` : ''
+        }${actualSearchType ? `&stype=${actualSearchType}` : ''}&prefer=true${actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''}`;
       router.push(url);
     } else if (actualSource && actualId) {
       const url = `/play?source=${actualSource}&id=${actualId}&title=${encodeURIComponent(
@@ -254,6 +268,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(function VideoCard
     isAggregate,
     actualQuery,
     actualSearchType,
+    authStatus.authenticated,
   ]);
 
   // 新标签页播放处理函数

@@ -28,13 +28,16 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronUp,
+  Clock,
   Database,
   ExternalLink,
   FileText,
   FolderOpen,
+  Key,
   KeyRound,
   Settings,
   Tv,
+  UserPlus,
   Users,
   Video,
 } from 'lucide-react';
@@ -222,6 +225,17 @@ const showError = (message: string, showAlert?: (config: any) => void) => {
   }
 };
 
+// 北京时间格式化：YYYY-MM-DD HH:mm:ss
+function formatDateTime(isoString: string): string {
+  const date = new Date(isoString);
+  const beijing = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  const p = (n: number) => n.toString().padStart(2, '0');
+  return (
+    `${beijing.getUTCFullYear()}-${p(beijing.getUTCMonth() + 1)}-${p(beijing.getUTCDate())}` +
+    ` ${p(beijing.getUTCHours())}:${p(beijing.getUTCMinutes())}:${p(beijing.getUTCSeconds())}`
+  );
+}
+
 const showSuccess = (message: string, showAlert?: (config: any) => void) => {
   if (showAlert) {
     showAlert({ type: 'success', title: '成功', message, timer: 2000 });
@@ -355,6 +369,10 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
     requireInviteCode: false,
     expiredGracePeriodDays: 10,
   });
+  const [loadingSettings, setLoadingSettings] = useState({
+    enableRegistration: false,
+    requireInviteCode: false,
+  });
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [showChangePasswordForm, setShowChangePasswordForm] = useState(false);
   const [showAddUserGroupForm, setShowAddUserGroupForm] = useState(false);
@@ -376,14 +394,11 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
     name: string;
     enabledApis: string[];
   } | null>(null);
-  const [showConfigureApisModal, setShowConfigureApisModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<{
     username: string;
     role: 'user' | 'admin' | 'owner';
-    enabledApis?: string[];
     tags?: string[];
   } | null>(null);
-  const [selectedApis, setSelectedApis] = useState<string[]>([]);
   const [showConfigureUserGroupModal, setShowConfigureUserGroupModal] = useState(false);
   const [selectedUserForGroup, setSelectedUserForGroup] = useState<{
     username: string;
@@ -544,8 +559,8 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
 
   // 切换允许注册设置
   const toggleAllowRegister = async (value: boolean) => {
+    setLoadingSettings((prev) => ({ ...prev, enableRegistration: true }));
     try {
-      // 先更新本地 UI
       setUserSettings((prev) => ({ ...prev, enableRegistration: value }));
 
       const res = await fetch('/api/admin/user', {
@@ -563,18 +578,21 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       }
 
       await refreshConfig();
+      showSuccess('设置已保存', showAlert);
     } catch (err) {
       showAlert({
         type: 'error',
         title: '操作失败',
         message: err instanceof Error ? err.message : '操作失败',
       });
-      // revert toggle UI
       setUserSettings((prev) => ({ ...prev, enableRegistration: !value }));
+    } finally {
+      setLoadingSettings((prev) => ({ ...prev, enableRegistration: false }));
     }
   };
 
   const toggleRequireInviteCode = async (value: boolean) => {
+    setLoadingSettings((prev) => ({ ...prev, requireInviteCode: true }));
     try {
       setUserSettings((prev) => ({ ...prev, requireInviteCode: value }));
       const res = await fetch('/api/admin/user', {
@@ -592,6 +610,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       }
 
       await refreshConfig();
+      showSuccess('设置已保存', showAlert);
     } catch (err) {
       showAlert({
         type: 'error',
@@ -599,6 +618,8 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         message: err instanceof Error ? err.message : '操作失败',
       });
       setUserSettings((prev) => ({ ...prev, requireInviteCode: !value }));
+    } finally {
+      setLoadingSettings((prev) => ({ ...prev, requireInviteCode: false }));
     }
   };
 
@@ -620,6 +641,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       }
 
       await refreshConfig();
+      showSuccess('设置已保存', showAlert);
     } catch (err) {
       showAlert({
         type: 'error',
@@ -677,16 +699,6 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
   const handleDeleteUser = (username: string) => {
     setDeletingUser(username);
     setShowDeleteUserModal(true);
-  };
-
-  const handleConfigureUserApis = (user: {
-    username: string;
-    role: 'user' | 'admin' | 'owner';
-    enabledApis?: string[];
-  }) => {
-    setSelectedUser(user);
-    setSelectedApis(user.enabledApis || []);
-    setShowConfigureApisModal(true);
   };
 
   const handleConfigureUserGroup = (user: {
@@ -791,38 +803,6 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
     }
   };
 
-  const handleSaveUserApis = async () => {
-    if (!selectedUser) return;
-
-    await withLoading(`saveUserApis_${selectedUser.username}`, async () => {
-      try {
-        const res = await fetch('/api/admin/user', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            targetUsername: selectedUser.username,
-            action: 'updateUserApis',
-            enabledApis: selectedApis,
-          }),
-        });
-
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || `操作失败: ${res.status}`);
-        }
-
-        // 成功后刷新配置
-        await refreshConfig();
-        setShowConfigureApisModal(false);
-        setSelectedUser(null);
-        setSelectedApis([]);
-      } catch (err) {
-        showError(err instanceof Error ? err.message : '操作失败', showAlert);
-        throw err;
-      }
-    });
-  };
-
   // 通用请求函数
   const handleUserAction = async (
     action:
@@ -923,17 +903,17 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         </div>
 
         {/* 用户组列表 */}
-        <div className='border border-gray-200 dark:border-gray-700 rounded-lg max-h-[20rem] overflow-y-auto overflow-x-auto relative'>
+        <div className='border border-gray-200 dark:border-gray-700 rounded-lg max-h-[20rem] overflow-y-auto overflow-x-auto'>
           <table className='min-w-full divide-y divide-gray-200 dark:divide-gray-700'>
             <thead className='bg-gray-50 dark:bg-gray-900 sticky top-0 z-10'>
               <tr>
-                <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+                <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                   用户组名称
                 </th>
-                <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+                <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                   可用视频源
                 </th>
-                <th className='px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+                <th className='whitespace-nowrap px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                   操作
                 </th>
               </tr>
@@ -987,85 +967,135 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300 mb-3'>
           注册设置
         </h4>
-        <div className='space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900'>
-          <div className='flex items-center justify-between'>
-            <label className='text-gray-700 dark:text-gray-300'>
-              允许新用户注册
-            </label>
-            <button
-              onClick={() =>
-                toggleAllowRegister(!userSettings.enableRegistration)
-              }
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${userSettings.enableRegistration
-                ? 'bg-green-600'
-                : 'bg-gray-200 dark:bg-gray-700'
+        <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-3'>
+          {/* 允许新用户注册 */}
+          <div className='rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-4 dark:border-gray-700 dark:from-gray-900 dark:to-gray-900/80'>
+            <div className='flex items-start justify-between gap-3'>
+              <div className='flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40'>
+                <UserPlus className='h-4 w-4 text-blue-600 dark:text-blue-400' />
+              </div>
+              <button
+                onClick={() =>
+                  toggleAllowRegister(!userSettings.enableRegistration)
+                }
+                disabled={loadingSettings.enableRegistration}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 ${
+                  userSettings.enableRegistration
+                    ? 'bg-green-600'
+                    : 'bg-gray-200 dark:bg-gray-700'
                 }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${userSettings.enableRegistration
-                  ? 'translate-x-6'
-                  : 'translate-x-1'
-                  }`}
-              />
-            </button>
+              >
+                {loadingSettings.enableRegistration ? (
+                  <span className='absolute inset-0 flex items-center justify-center'>
+                    <Clock className='h-3 w-3 animate-spin text-white' />
+                  </span>
+                ) : (
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      userSettings.enableRegistration
+                        ? 'translate-x-6'
+                        : 'translate-x-1'
+                    }`}
+                  />
+                )}
+              </button>
+            </div>
+            <div className='mt-3'>
+              <p className='text-sm font-semibold text-gray-900 dark:text-gray-100'>
+                允许新用户注册
+              </p>
+              <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+                {userSettings.enableRegistration
+                  ? '用户可自主注册账号'
+                  : '关闭后新用户无法注册'}
+              </p>
+            </div>
           </div>
 
-          {role === 'owner' && (
-            <>
-              <div className='flex items-center justify-between'>
-                <label className='text-gray-700 dark:text-gray-300'>
-                  注册需要邀请码
-                </label>
+          {/* 注册需要邀请码 */}
+          {role === 'owner' && userSettings.enableRegistration && (
+            <div className='rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-4 dark:border-gray-700 dark:from-gray-900 dark:to-gray-900/80'>
+              <div className='flex items-start justify-between gap-3'>
+                <div className='flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40'>
+                  <Key className='h-4 w-4 text-amber-600 dark:text-amber-400' />
+                </div>
                 <button
                   onClick={() =>
                     toggleRequireInviteCode(!userSettings.requireInviteCode)
                   }
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${userSettings.requireInviteCode
-                    ? 'bg-green-600'
-                    : 'bg-gray-200 dark:bg-gray-700'
-                    }`}
+                  disabled={loadingSettings.requireInviteCode}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 ${
+                    userSettings.requireInviteCode
+                      ? 'bg-green-600'
+                      : 'bg-gray-200 dark:bg-gray-700'
+                  }`}
                 >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${userSettings.requireInviteCode
-                      ? 'translate-x-6'
-                      : 'translate-x-1'
+                  {loadingSettings.requireInviteCode ? (
+                    <span className='absolute inset-0 flex items-center justify-center'>
+                      <Clock className='h-3 w-3 animate-spin text-white' />
+                    </span>
+                  ) : (
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        userSettings.requireInviteCode
+                          ? 'translate-x-6'
+                          : 'translate-x-1'
                       }`}
-                  />
+                    />
+                  )}
                 </button>
               </div>
+              <div className='mt-3'>
+                <p className='text-sm font-semibold text-gray-900 dark:text-gray-100'>
+                  注册需要邀请码
+                </p>
+                <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+                  {userSettings.requireInviteCode
+                    ? '新用户必须输入有效邀请码'
+                    : '注册无需邀请码'}
+                </p>
+              </div>
+            </div>
+          )}
 
-              <div className='space-y-2'>
-                <label className='text-gray-700 dark:text-gray-300 text-sm'>
-                  过期宽限期天数
-                </label>
-                <div className='flex items-center gap-3'>
-                  <input
-                    type='number'
-                    min={1}
-                    max={3650}
-                    value={userSettings.expiredGracePeriodDays}
-                    onChange={(event) =>
-                      setUserSettings((prev) => ({
-                        ...prev,
-                        expiredGracePeriodDays: Number(event.target.value || 1),
-                      }))
-                    }
-                    className='w-28 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100'
-                  />
-                  <button
-                    type='button'
-                    onClick={() =>
-                      updateExpiredGracePeriodDays(
-                        userSettings.expiredGracePeriodDays
-                      )
-                    }
-                    className={buttonStyles.primarySmall}
-                  >
-                    保存
-                  </button>
+          {/* 过期宽限期 */}
+          {role === 'owner' && (
+            <div className='rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-4 dark:border-gray-700 dark:from-gray-900 dark:to-gray-900/80'>
+              <div className='mb-3 flex items-center gap-3'>
+                <div className='flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100 dark:bg-purple-900/40'>
+                  <Clock className='h-4 w-4 text-purple-600 dark:text-purple-400' />
+                </div>
+                <div>
+                  <p className='text-sm font-semibold text-gray-900 dark:text-gray-100'>
+                    过期宽限期
+                  </p>
+                  <p className='text-xs text-gray-500 dark:text-gray-400'>
+                    账号过期后保留天数
+                  </p>
                 </div>
               </div>
-            </>
+              <input
+                type='number'
+                min={0}
+                max={3650}
+                value={userSettings.expiredGracePeriodDays}
+                onBlur={(e) =>
+                  updateExpiredGracePeriodDays(
+                    Number(e.target.value || 1)
+                  )
+                }
+                onChange={(event) =>
+                  setUserSettings((prev) => ({
+                    ...prev,
+                    expiredGracePeriodDays: Number(event.target.value || 1),
+                  }))
+                }
+                className='w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/30 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-green-500 dark:focus:ring-green-500/30'
+              />
+              <p className='mt-1.5 text-xs text-gray-400 dark:text-gray-500'>
+                离开输入框自动保存
+              </p>
+            </div>
           )}
         </div>
       </div>
@@ -1267,7 +1297,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                   scope='col'
                   className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
                 >
-                  采集源权限
+                  到期时间
                 </th>
                 <th
                   scope='col'
@@ -1382,26 +1412,14 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                               )}
                           </div>
                         </td>
-                        <td className='px-6 py-4 whitespace-nowrap'>
-                          <div className='flex items-center space-x-2'>
-                            <span className='text-sm text-gray-900 dark:text-gray-100'>
-                              {user.enabledApis && user.enabledApis.length > 0
-                                ? `${user.enabledApis.length} 个源`
-                                : '无限制'}
+                        <td className='px-6 py-4 whitespace-nowrap text-sm'>
+                          {user.expiresAt ? (
+                            <span className='text-gray-700 dark:text-gray-300'>
+                              {formatDateTime(user.expiresAt)}
                             </span>
-                            {/* 配置采集源权限按钮 */}
-                            {(role === 'owner' ||
-                              (role === 'admin' &&
-                                (user.role === 'user' ||
-                                  user.username === currentUsername))) && (
-                                <button
-                                  onClick={() => handleConfigureUserApis(user)}
-                                  className={buttonStyles.roundedPrimary}
-                                >
-                                  配置
-                                </button>
-                              )}
-                          </div>
+                          ) : (
+                            <span className='text-gray-400'>—</span>
+                          )}
                         </td>
                         <td className='px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2'>
                           {/* 修改密码按钮 */}
@@ -1479,136 +1497,6 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
           </table>
         </div>
       </div>
-
-      {/* 配置用户采集源权限弹窗 */}
-      {showConfigureApisModal && selectedUser && createPortal(
-        <div className='fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4' onClick={() => {
-          setShowConfigureApisModal(false);
-          setSelectedUser(null);
-          setSelectedApis([]);
-        }}>
-          <div className='bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-y-auto' onClick={(e) => e.stopPropagation()}>
-            <div className='p-6'>
-              <div className='flex items-center justify-between mb-6'>
-                <h3 className='text-xl font-semibold text-gray-900 dark:text-gray-100'>
-                  配置用户采集源权限 - {selectedUser.username}
-                </h3>
-                <button
-                  onClick={() => {
-                    setShowConfigureApisModal(false);
-                    setSelectedUser(null);
-                    setSelectedApis([]);
-                  }}
-                  className='text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors'
-                >
-                  <svg className='w-6 h-6' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                    <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M6 18L18 6M6 6l12 12' />
-                  </svg>
-                </button>
-              </div>
-
-              <div className='mb-6'>
-                <div className='bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4'>
-                  <div className='flex items-center space-x-2 mb-2'>
-                    <svg className='w-5 h-5 text-blue-600 dark:text-blue-400' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                      <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' />
-                    </svg>
-                    <span className='text-sm font-medium text-blue-800 dark:text-blue-300'>
-                      配置说明
-                    </span>
-                  </div>
-                  <p className='text-sm text-blue-700 dark:text-blue-400 mt-1'>
-                    提示：全不选为无限制，选中的采集源将限制用户只能访问这些源
-                  </p>
-                </div>
-              </div>
-
-              {/* 采集源选择 - 多列布局 */}
-              <div className='mb-6'>
-                <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300 mb-4'>
-                  选择可用的采集源：
-                </h4>
-                <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
-                  {config?.SourceConfig?.map((source) => (
-                    <label key={source.key} className='flex items-center space-x-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors'>
-                      <input
-                        type='checkbox'
-                        checked={selectedApis.includes(source.key)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedApis([...selectedApis, source.key]);
-                          } else {
-                            setSelectedApis(selectedApis.filter(api => api !== source.key));
-                          }
-                        }}
-                        className='rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700'
-                      />
-                      <div className='flex-1 min-w-0'>
-                        <div className='text-sm font-medium text-gray-900 dark:text-gray-100 truncate'>
-                          {source.name}
-                        </div>
-                        {source.api && (
-                          <div className='text-xs text-gray-500 dark:text-gray-400 truncate'>
-                            {extractDomain(source.api)}
-                          </div>
-                        )}
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* 快速操作按钮 */}
-              <div className='flex flex-wrap items-center justify-between mb-6 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg'>
-                <div className='flex space-x-2'>
-                  <button
-                    onClick={() => setSelectedApis([])}
-                    className={buttonStyles.quickAction}
-                  >
-                    全不选（无限制）
-                  </button>
-                  <button
-                    onClick={() => {
-                      const allApis = config?.SourceConfig?.filter(source => !source.disabled).map(s => s.key) || [];
-                      setSelectedApis(allApis);
-                    }}
-                    className={buttonStyles.quickAction}
-                  >
-                    全选
-                  </button>
-                </div>
-                <div className='text-sm text-gray-600 dark:text-gray-400'>
-                  已选择：<span className='font-medium text-blue-600 dark:text-blue-400'>
-                    {selectedApis.length > 0 ? `${selectedApis.length} 个源` : '无限制'}
-                  </span>
-                </div>
-              </div>
-
-              {/* 操作按钮 */}
-              <div className='flex justify-end space-x-3'>
-                <button
-                  onClick={() => {
-                    setShowConfigureApisModal(false);
-                    setSelectedUser(null);
-                    setSelectedApis([]);
-                  }}
-                  className={`px-6 py-2.5 text-sm font-medium ${buttonStyles.secondary}`}
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleSaveUserApis}
-                  disabled={isLoading(`saveUserApis_${selectedUser?.username}`)}
-                  className={`px-6 py-2.5 text-sm font-medium ${isLoading(`saveUserApis_${selectedUser?.username}`) ? buttonStyles.disabled : buttonStyles.primary}`}
-                >
-                  {isLoading(`saveUserApis_${selectedUser?.username}`) ? '配置中...' : '确认配置'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
 
       {/* 添加用户组弹窗 */}
       {showAddUserGroupForm && createPortal(
@@ -2832,25 +2720,25 @@ const VideoSourceConfig = ({
                   className='w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600'
                 />
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 名称
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 Key
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 API 地址
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 Detail 地址
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 状态
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 有效性
               </th>
-              <th className='px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 操作
               </th>
             </tr>
@@ -3273,19 +3161,19 @@ const CategoryConfig = ({
           <thead className='bg-gray-50 dark:bg-gray-900 sticky top-0 z-10'>
             <tr>
               <th className='w-8' />
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 分类名称
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 类型
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 搜索关键词
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 状态
               </th>
-              <th className='px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 操作
               </th>
             </tr>
@@ -4608,28 +4496,28 @@ const LiveSourceConfig = ({
           <thead className='bg-gray-50 dark:bg-gray-900 sticky top-0 z-10'>
             <tr>
               <th className='w-8' />
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 名称
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 Key
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 M3U 地址
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 节目单地址
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 自定义 UA
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 频道数
               </th>
-              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 状态
               </th>
-              <th className='px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+              <th className='whitespace-nowrap px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 操作
               </th>
             </tr>

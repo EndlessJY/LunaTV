@@ -24,6 +24,7 @@ const ACTIONS = [
   'userGroup',
   'updateUserGroups',
   'batchUpdateUserGroups',
+  'updateExpiresAt',
 ] as const;
 
 export async function POST(request: NextRequest) {
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
       allowRegister,
       requireInviteCodeForRegister,
       expiredGracePeriodDays,
+      expiresAt,
       action,
     } = body as {
       targetUsername?: string;
@@ -59,6 +61,7 @@ export async function POST(request: NextRequest) {
       allowRegister?: boolean;
       requireInviteCodeForRegister?: boolean;
       expiredGracePeriodDays?: number;
+      expiresAt?: string;
       action?: (typeof ACTIONS)[number];
     };
 
@@ -168,11 +171,11 @@ export async function POST(request: NextRequest) {
         if (
           typeof expiredGracePeriodDays !== 'number' ||
           !Number.isInteger(expiredGracePeriodDays) ||
-          expiredGracePeriodDays < 1 ||
+          expiredGracePeriodDays < 0 ||
           expiredGracePeriodDays > 3650
         ) {
           return NextResponse.json(
-            { error: '过期宽限期天数需为 1-3650 的整数' },
+            { error: '过期宽限期天数需为 0-3650 的整数' },
             { status: 400 }
           );
         }
@@ -374,6 +377,32 @@ export async function POST(request: NextRequest) {
           }
         };
 
+        break;
+      }
+      case 'updateExpiresAt': {
+        if (!targetEntry) {
+          return NextResponse.json(
+            { error: '目标用户不存在' },
+            { status: 404 }
+          );
+        }
+
+        if (typeof expiresAt !== 'string') {
+          return NextResponse.json(
+            { error: '到期时间格式错误' },
+            { status: 400 }
+          );
+        }
+
+        const parsedDate = new Date(expiresAt);
+        if (Number.isNaN(parsedDate.getTime())) {
+          return NextResponse.json(
+            { error: '到期时间格式错误' },
+            { status: 400 }
+          );
+        }
+
+        targetEntry.expiresAt = parsedDate.toISOString();
         break;
       }
       case 'updateUserApis': {

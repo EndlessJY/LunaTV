@@ -1,12 +1,11 @@
 /* eslint-disable no-console,@typescript-eslint/no-explicit-any */
-
-import * as crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getConfig, refineConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { fetchVideoDetail } from '@/lib/fetchVideoDetail';
 import { refreshLiveChannels } from '@/lib/live';
+import { getMembershipState, shouldPurgeExpiredUser } from '@/lib/member';
 import { SearchResult } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -16,7 +15,7 @@ export async function GET(request: NextRequest) {
   try {
     console.log('Cron job triggered:', new Date().toISOString());
 
-    cronJob();
+    await cronJob();
 
     return NextResponse.json({
       success: true,
@@ -146,6 +145,53 @@ async function refreshRecordAndFavorites() {
 
     for (const user of users) {
       console.log(`开始处理用户: ${user}`);
+
+      // 会员状态检查：自动禁用 / 删除过期用户
+      try {
+        const config = await getConfig();
+        const userEntry = config.UserConfig.Users.find(u => u.username === user);
+        const gracePeriodDays = config.UserConfig.ExpiredGracePeriodDays ?? 30;
+        const role = userEntry?.role ?? 'user';
+        const expiresAt = userEntry?.expiresAt;
+
+        const now = new Date().toISOString();
+
+        // 调试日志
+        console.log(`[会员检查] 用户=${user} role=${role} expiresAt=${expiresAt} gracePeriodDays=${gracePeriodDays}`);
+
+        if (shouldPurgeExpiredUser({ role, expiresAt, gracePeriodDays, now })) {
+          console.log(`用户已过宽限期，删除账号: ${user}`);
+          await db.deleteUser(user);
+          config.UserConfig.Users = config.UserConfig.Users.filter(
+            u => u.username !== user
+          );
+          await db.saveAdminConfig(config);
+          console.log(`账号已删除: ${user}`);
+          continue;
+        }
+
+        const { status } = getMembershipState({
+          role,
+          expiresAt,
+          gracePeriodDays,
+          now,
+        });
+        console.log(`[会员检查] 用户=${user} status=${status}`);
+
+        if (status === 'expired' && userEntry && !userEntry.banned) {
+          userEntry.banned = true;
+          await db.saveAdminConfig(config);
+          console.log(`用户已过期，自动禁用账号: ${user}`);
+          continue;
+        }
+
+        if (userEntry?.banned) {
+          console.log(`用户已被禁用，跳过播放记录/收藏处理: ${user}`);
+          continue;
+        }
+      } catch (err) {
+        console.error(`检查用户会员状态失败 (${user}):`, err);
+      }
 
       // 播放记录
       try {

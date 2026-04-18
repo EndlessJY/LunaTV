@@ -174,7 +174,6 @@ export async function POST(req: NextRequest) {
             const inviteErrors = {
               not_found: '邀请码不存在',
               used: '邀请码已被使用',
-              disabled: '邀请码已被禁用',
               expired: '邀请码已过期',
               invalid_date: '邀请码数据无效',
             } as const;
@@ -187,6 +186,7 @@ export async function POST(req: NextRequest) {
 
           originalInviteRecord = inviteRecord!;
           expiresAt = renewMembership({
+            accountExpiresAt: originalInviteRecord.accountExpiresAt,
             durationDays: originalInviteRecord.accountDurationDays,
             now,
           });

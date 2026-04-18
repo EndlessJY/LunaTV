@@ -79,7 +79,8 @@ export function AuthDialog({
       setPassword('');
       setInviteCode('');
       await onSuccess();
-      onClose();
+      // 刷新页面以更新全局认证状态
+      window.location.reload();
     } catch (submitError) {
       setError(
         submitError instanceof Error ? submitError.message : '操作失败，请稍后重试'

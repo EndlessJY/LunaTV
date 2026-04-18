@@ -1350,7 +1350,7 @@ export type CacheUpdateEvent =
   | 'searchHistoryUpdated'
   | 'skipConfigsUpdated';
 
-export type AuthGateReason = 'unauthenticated' | 'expired' | 'removed';
+export type AuthGateReason = 'unauthenticated' | 'expired' | 'removed' | 'login' | 'play' | 'favorite';
 
 function dispatchAuthGateRequested(reason: AuthGateReason): void {
   if (typeof window === 'undefined') return;

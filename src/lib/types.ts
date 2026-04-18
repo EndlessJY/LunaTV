@@ -132,14 +132,15 @@ export interface SkipConfig {
 }
 
 // 邀请码状态
-export type InviteCodeStatus = 'active' | 'used' | 'disabled';
+export type InviteCodeStatus = 'active' | 'used';
 
 // 邀请码记录结构
 export interface InviteCodeRecord {
   code: string;
   status: InviteCodeStatus;
   inviteExpiresAt: string;
-  accountDurationDays: number;
+  accountDurationDays?: number; // 旧字段，兼容使用
+  accountExpiresAt?: string;   // 账号到期时间（UTC ISO 字符串），优先使用
   createdAt: string;
   createdBy: string;
   note?: string;

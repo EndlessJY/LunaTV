@@ -104,35 +104,47 @@ function handleAuthFailure(
 ): NextResponse {
   // 如果是 API 路由，返回 401 状态码
   if (pathname.startsWith('/api')) {
-    return new NextResponse('Unauthorized', { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // 否则重定向到登录页面
-  const loginUrl = new URL('/login', request.url);
-  // 保留完整的URL，包括查询参数
-  const fullUrl = `${pathname}${request.nextUrl.search}`;
-  loginUrl.searchParams.set('redirect', fullUrl);
-  return NextResponse.redirect(loginUrl);
+  if (pathname.startsWith('/admin')) {
+    return NextResponse.redirect(new URL('/', request.url));
+  }
+
+  // 页面级路由：允许通过，由客户端 AuthGateProvider 控制访问
+  return NextResponse.next();
 }
 
 // 判断是否需要跳过认证的路径
 function shouldSkipAuth(pathname: string): boolean {
-  const skipPaths = [
+  if (pathname === '/') return true;
+
+  const skipPrefixPaths = [
+    '/search',
+    '/play',
+    '/douban',
+    '/live',
     '/_next',
+    '/icons/',
+  ];
+
+  const skipExactPaths = [
     '/favicon.ico',
     '/robots.txt',
     '/manifest.json',
-    '/icons/',
     '/logo.png',
     '/screenshot.png',
   ];
 
-  return skipPaths.some((path) => pathname.startsWith(path));
+  return (
+    skipExactPaths.includes(pathname) ||
+    skipPrefixPaths.some((path) => pathname.startsWith(path))
+  );
 }
 
 // 配置middleware匹配规则
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|login|warning|api/login|api/register|api/logout|api/cron|api/server-config).*)',
+    '/((?!_next/static|_next/image|favicon.ico|login|warning|api/login|api/register|api/logout|api/cron|api/server-config|api/search|api/search/ws|api/search/one|api/search/suggestions|api/detail|api/douban|api/douban/categories|api/douban/recommends).*)',
   ],
 };

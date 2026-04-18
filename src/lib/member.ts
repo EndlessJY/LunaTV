@@ -77,16 +77,21 @@ export function getMembershipState(input: {
 
 export function renewMembership(input: {
   currentExpiresAt?: string;
-  durationDays: number;
+  durationDays?: number;
+  accountExpiresAt?: string; // 直接指定到期时间（UTC ISO），优先使用
   now: string;
 }): string {
+  if (input.accountExpiresAt) {
+    const parsed = parseDate(input.accountExpiresAt);
+    if (parsed) return input.accountExpiresAt;
+  }
   const now = parseDate(input.now) || new Date();
   const currentExpiresAt = parseDate(input.currentExpiresAt);
   const baseTime =
     currentExpiresAt && currentExpiresAt > now ? currentExpiresAt : now;
 
   return new Date(
-    baseTime.getTime() + normalizeDays(input.durationDays) * MILLISECONDS_PER_DAY
+    baseTime.getTime() + normalizeDays(input.durationDays ?? 0) * MILLISECONDS_PER_DAY
   ).toISOString();
 }
 

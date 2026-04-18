@@ -6,7 +6,7 @@ type InviteValidateResult =
   | { ok: true }
   | {
       ok: false;
-      reason: 'not_found' | 'used' | 'disabled' | 'expired' | 'invalid_date';
+      reason: 'not_found' | 'used' | 'expired' | 'invalid_date';
     };
 
 function parseValidDate(input: string): Date | null {
@@ -47,9 +47,6 @@ export function validateInviteRecord(
   if (record.status === 'used') {
     return { ok: false, reason: 'used' };
   }
-  if (record.status === 'disabled') {
-    return { ok: false, reason: 'disabled' };
-  }
   const nowDate = parseValidDate(now);
   const inviteExpiresAtDate = parseValidDate(record.inviteExpiresAt);
   if (!nowDate || !inviteExpiresAtDate) {
@@ -77,7 +74,7 @@ export function consumeInviteRecord(
 export function generateInviteCodes(input: {
   count: number;
   inviteExpiresAt: string;
-  accountDurationDays: number;
+  accountExpiresAt: string;
   createdBy: string;
   note?: string;
   now?: string;
@@ -97,7 +94,7 @@ export function generateInviteCodes(input: {
       code,
       status: 'active',
       inviteExpiresAt: input.inviteExpiresAt,
-      accountDurationDays: input.accountDurationDays,
+      accountExpiresAt: input.accountExpiresAt,
       createdAt,
       createdBy: input.createdBy,
       note: input.note,

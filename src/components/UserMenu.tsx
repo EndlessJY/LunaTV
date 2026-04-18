@@ -18,7 +18,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
-import { clearGuestMode } from '@/lib/db.client';
+import { AuthGateReason, clearGuestMode } from '@/lib/db.client';
 import { CURRENT_VERSION } from '@/lib/version';
 import { checkForUpdates, UpdateStatus } from '@/lib/version_check';
 
@@ -251,6 +251,15 @@ export const UserMenu: React.FC = () => {
   }, [isDoubanImageProxyDropdownOpen]);
 
   const handleMenuClick = () => {
+    if (!authInfo?.username) {
+      // 未登录：打开登录对话框
+      window.dispatchEvent(
+        new CustomEvent('authGateRequested', {
+          detail: { reason: 'login' as AuthGateReason },
+        })
+      );
+      return;
+    }
     setIsOpen(!isOpen);
   };
 

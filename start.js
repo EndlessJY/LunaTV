@@ -28,7 +28,7 @@ require('./server.js');
 
 // 每 1 秒轮询一次，直到请求成功
 const TARGET_URL = `http://${process.env.HOSTNAME || 'localhost'}:${process.env.PORT || 3000
-  }/login`;
+  }/api/server-config`;
 
 const intervalId = setInterval(() => {
   console.log(`Fetching ${TARGET_URL} ...`);
@@ -44,10 +44,10 @@ const intervalId = setInterval(() => {
         executeCronJob();
       }, 3000);
 
-      // 然后设置每小时执行一次 cron 任务
+      // 然后设置每 10 分钟执行一次 cron 任务
       setInterval(() => {
         executeCronJob();
-      }, 60 * 60 * 1000); // 每小时执行一次
+      }, 10 * 60 * 1000); // 每 10 分钟执行一次
     }
   });
 

@@ -668,6 +668,12 @@ function PlayPageClient() {
         const detailResponse = await fetch(
           `/api/detail?source=${source}&id=${id}`
         );
+        if (detailResponse.status === 401) {
+          // 认证失败：打开登录对话框
+          ensureAuthorized('play');
+          setSourceSearchError('请先登录');
+          return [];
+        }
         if (!detailResponse.ok) {
           throw new Error('获取视频详情失败');
         }
@@ -687,6 +693,12 @@ function PlayPageClient() {
         const response = await fetch(
           `/api/search?q=${encodeURIComponent(query.trim())}`
         );
+        if (response.status === 401) {
+          // 认证失败：打开登录对话框
+          ensureAuthorized('play');
+          setSourceSearchError('请先登录');
+          return [];
+        }
         if (!response.ok) {
           throw new Error('搜索失败');
         }

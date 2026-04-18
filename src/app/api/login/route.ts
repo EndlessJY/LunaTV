@@ -209,6 +209,12 @@ export async function POST(req: NextRequest) {
             { status: 401 }
           );
         }
+
+        // 过期但还在宽限期内 → 立即禁用账号
+        if (state.status === 'expired' && user && !user.banned) {
+          user.banned = true;
+          await db.saveAdminConfig(config);
+        }
       }
 
       // 验证成功，设置认证cookie

@@ -185,6 +185,12 @@ export async function getAuthorizedMember(
     return { ok: false, status: 401, error: '账号已过期且已被清理' };
   }
 
+  // 过期但还在宽限期内 → 立即禁用账号
+  if (membershipState.status === 'expired' && !user.banned) {
+    user.banned = true;
+    await db.saveAdminConfig(config);
+  }
+
   if (options?.requireActive && membershipState.status !== 'active') {
     return { ok: false, status: 401, error: '账号已过期' };
   }

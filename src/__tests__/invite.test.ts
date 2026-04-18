@@ -10,6 +10,7 @@ const activeRecord: InviteCodeRecord = {
   status: 'active',
   inviteExpiresAt: '2026-06-30T00:00:00.000Z',
   accountDurationDays: 30,
+  accountExpiresAt: '2026-07-01T00:00:00.000Z',
   createdAt: '2026-06-01T00:00:00.000Z',
   createdBy: 'owner',
 };
@@ -29,16 +30,6 @@ describe('invite helpers', () => {
         '2026-06-10T00:00:00.000Z'
       )
     ).toEqual({ ok: false, reason: 'used' });
-
-    expect(
-      validateInviteRecord(
-        {
-          ...activeRecord,
-          status: 'disabled',
-        },
-        '2026-06-10T00:00:00.000Z'
-      )
-    ).toEqual({ ok: false, reason: 'disabled' });
 
     expect(
       validateInviteRecord(
@@ -90,7 +81,7 @@ describe('invite helpers', () => {
     const generated = generateInviteCodes({
       count: 3,
       inviteExpiresAt: '2026-06-30T00:00:00.000Z',
-      accountDurationDays: 30,
+      accountExpiresAt: '2026-07-01T00:00:00.000Z',
       createdBy: 'owner',
       note: 'batch-A',
       now: '2026-06-01T00:00:00.000Z',

@@ -62,6 +62,17 @@ function normalizeDurationDays(input: unknown): number | null {
   return input;
 }
 
+function normalizeAccountExpiresAt(input: unknown): string | null {
+  if (typeof input !== 'string') {
+    return null;
+  }
+  const parsed = new Date(input);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toISOString();
+}
+
 function normalizeBatchCount(input: unknown): number | null {
   if (
     typeof input !== 'number' ||
@@ -136,37 +147,14 @@ function sortInviteRecords(records: InviteCodeRecord[]) {
   });
 }
 
-async function disableInvite(code: string) {
-  const token = `disable:${crypto.randomUUID()}`;
-  const locked = await db.acquireInviteCodeLock(code, token);
-  if (!locked) {
-    return responseNoStore({ error: '邀请码正在处理中，请稍后重试' }, 409);
+// 兼容历史 disabled 状态：读取时统一映射为 active
+function normalizeStatus(
+  record: InviteCodeRecord
+): InviteCodeRecord {
+  if ((record.status as string) === 'disabled') {
+    return { ...record, status: 'active' as const };
   }
-
-  try {
-    const record = await db.getInviteCode(code);
-    if (!record) {
-      return responseNoStore({ error: '邀请码不存在' }, 404);
-    }
-    if (record.status === 'used') {
-      return responseNoStore({ error: '已使用的邀请码无法禁用' }, 400);
-    }
-
-    if (record.status !== 'disabled') {
-      await db.saveInviteCode({
-        ...record,
-        status: 'disabled',
-      });
-    }
-
-    return responseNoStore({ ok: true });
-  } finally {
-    try {
-      await db.releaseInviteCodeLock(code, token);
-    } catch {
-      // ignore lock release failure after invite mutation is already persisted
-    }
-  }
+  return record;
 }
 
 export async function GET(request: NextRequest) {
@@ -177,9 +165,10 @@ export async function GET(request: NextRequest) {
     }
 
     const records = await db.getAllInviteCodes();
+    const normalized = records.map(normalizeStatus);
     return responseNoStore({
       ok: true,
-      invites: sortInviteRecords(records),
+      invites: sortInviteRecords(normalized),
     });
   } catch (error) {
     return responseNoStore(
@@ -199,13 +188,6 @@ export async function POST(request: NextRequest) {
     }
 
     const body = (await request.json()) as Record<string, unknown>;
-    if (body.action === 'disable') {
-      const code = normalizeInviteCode(body.code);
-      if (!code) {
-        return responseNoStore({ error: '邀请码格式错误' }, 400);
-      }
-      return disableInvite(code);
-    }
 
     const note = normalizeNote(body.note);
     if (note === null) {
@@ -217,15 +199,25 @@ export async function POST(request: NextRequest) {
       return responseNoStore({ error: '邀请码有效期格式错误' }, 400);
     }
 
+    // 优先使用 accountExpiresAt（精确时间），兼容旧字段 accountDurationDays
+    const accountExpiresAt = normalizeAccountExpiresAt(body.accountExpiresAt);
     const accountDurationDays = normalizeDurationDays(body.accountDurationDays);
-    if (!accountDurationDays) {
+
+    if (!accountExpiresAt && !accountDurationDays) {
       return responseNoStore(
-        {
-          error: `账号有效期需为 1-${MAX_ACCOUNT_DURATION_DAYS} 的整数`,
-        },
+        { error: '请提供账号到期时间' },
         400
       );
     }
+
+    const finalAccountExpiresAt =
+      accountExpiresAt ||
+      (() => {
+        // 旧字段兼容：从 accountDurationDays 反推 accountExpiresAt
+        const now = new Date();
+        now.setUTCDate(now.getUTCDate() + (accountDurationDays ?? 0));
+        return now.toISOString();
+      })();
 
     if (body.count !== undefined) {
       const count = normalizeBatchCount(body.count);
@@ -249,7 +241,7 @@ export async function POST(request: NextRequest) {
           const batch = generateInviteCodes({
             count: 1,
             inviteExpiresAt,
-            accountDurationDays,
+            accountExpiresAt: finalAccountExpiresAt,
             createdBy: owner.username,
             note,
             now,
@@ -336,7 +328,7 @@ export async function POST(request: NextRequest) {
       code,
       status: 'active',
       inviteExpiresAt,
-      accountDurationDays,
+      accountExpiresAt: finalAccountExpiresAt,
       createdAt: new Date().toISOString(),
       createdBy: owner.username,
       note,
@@ -379,34 +371,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function PATCH(request: NextRequest) {
-  try {
-    const owner = await requireOwner(request);
-    if (!owner.ok) {
-      return owner.response;
-    }
-
-    const body = (await request.json()) as Record<string, unknown>;
-    if (body.status !== undefined && body.status !== 'disabled') {
-      return responseNoStore({ error: '仅支持将邀请码状态设置为 disabled' }, 400);
-    }
-
-    const code = normalizeInviteCode(body.code);
-    if (!code) {
-      return responseNoStore({ error: '邀请码格式错误' }, 400);
-    }
-
-    return disableInvite(code);
-  } catch (error) {
-    return responseNoStore(
-      {
-        error: '邀请码状态更新失败',
-      },
-      500
-    );
-  }
-}
-
 export async function DELETE(request: NextRequest) {
   try {
     const owner = await requireOwner(request);
@@ -414,40 +378,65 @@ export async function DELETE(request: NextRequest) {
       return owner.response;
     }
 
-    let rawCode: unknown = request.nextUrl.searchParams.get('code');
-    if (!rawCode) {
-      const body = (await request.json().catch(() => null)) as
-        | Record<string, unknown>
-        | null;
-      rawCode = body?.code;
+    let codes: string[] = [];
+
+    const body = (await request.json().catch(() => null)) as
+      | Record<string, unknown>
+      | null;
+
+    if (body?.codes && Array.isArray(body.codes)) {
+      codes = (body.codes as unknown[])
+        .map((c) => normalizeInviteCode(c))
+        .filter((c): c is string => c !== null);
+    } else {
+      const rawCode = request.nextUrl.searchParams.get('code');
+      if (rawCode) {
+        const code = normalizeInviteCode(rawCode);
+        if (code) codes = [code];
+      }
     }
 
-    const code = normalizeInviteCode(rawCode);
-    if (!code) {
-      return responseNoStore({ error: '邀请码格式错误' }, 400);
+    if (codes.length === 0) {
+      return responseNoStore({ error: '请提供要删除的邀请码' }, 400);
     }
 
-    const token = `delete:${crypto.randomUUID()}`;
-    const locked = await db.acquireInviteCodeLock(code, token);
-    if (!locked) {
-      return responseNoStore({ error: '邀请码正在处理中，请稍后重试' }, 409);
-    }
+    const results: { code: string; ok: boolean; error?: string }[] = [];
 
-    try {
-      const exists = await db.getInviteCode(code);
-      if (!exists) {
-        return responseNoStore({ error: '邀请码不存在' }, 404);
+    for (const code of codes) {
+      const token = `delete:${crypto.randomUUID()}`;
+      const locked = await db.acquireInviteCodeLock(code, token);
+      if (!locked) {
+        results.push({ code, ok: false, error: '邀请码正在处理中，请稍后重试' });
+        continue;
       }
 
-      await db.deleteInviteCode(code);
-      return responseNoStore({ ok: true });
-    } finally {
       try {
-        await db.releaseInviteCodeLock(code, token);
-      } catch {
-        // ignore lock release failure after invite deletion is already persisted
+        const exists = await db.getInviteCode(code);
+        if (!exists) {
+          results.push({ code, ok: false, error: '邀请码不存在' });
+          continue;
+        }
+
+        await db.deleteInviteCode(code);
+        results.push({ code, ok: true });
+      } finally {
+        try {
+          await db.releaseInviteCodeLock(code, token);
+        } catch {
+          // ignore lock release failure
+        }
       }
     }
+
+    const failed = results.filter((r) => !r.ok);
+    if (failed.length > 0) {
+      return responseNoStore(
+        { ok: false, error: '部分邀请码删除失败', results },
+        207
+      );
+    }
+
+    return responseNoStore({ ok: true, results });
   } catch (error) {
     return responseNoStore(
       {

@@ -29,7 +29,7 @@ import { useSite } from '@/components/SiteProvider';
 import VideoCard from '@/components/VideoCard';
 
 function HomeClient() {
-  const { ensureAuthorized } = useAuthGate();
+  const { ensureAuthorized, authStatus } = useAuthGate();
   const [activeTab, setActiveTab] = useState<'home' | 'favorites'>('home');
   const [hotMovies, setHotMovies] = useState<DoubanItem[]>([]);
   const [hotTvShows, setHotTvShows] = useState<DoubanItem[]>([]);
@@ -175,10 +175,14 @@ function HomeClient() {
         {/* 顶部 Tab 切换 */}
         <div className='mb-8 flex justify-center'>
           <CapsuleSwitch
-            options={[
-              { label: '首页', value: 'home' },
-              { label: '收藏夹', value: 'favorites' },
-            ]}
+            options={
+              authStatus.authenticated
+                ? [
+                    { label: '首页', value: 'home' },
+                    { label: '收藏夹', value: 'favorites' },
+                  ]
+                : [{ label: '首页', value: 'home' }]
+            }
             active={activeTab}
             onChange={(value) => setActiveTab(value as 'home' | 'favorites')}
           />
@@ -227,7 +231,7 @@ function HomeClient() {
             // 首页视图
             <>
               {/* 继续观看 */}
-              <ContinueWatching />
+              <ContinueWatching isLoggedIn={authStatus.authenticated} />
 
               {/* 热门电影 */}
               <section className='mb-8'>
