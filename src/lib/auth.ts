@@ -158,14 +158,10 @@ export async function getAuthorizedMember(
     return { ok: false, status: 401, error: '用户不存在' };
   }
 
-  if (user.banned) {
-    return { ok: false, status: 401, error: '用户已被封禁' };
-  }
-
   const membershipState = getMembershipState({
     role: user.role,
     expiresAt: user.expiresAt,
-    gracePeriodDays: config.UserConfig.ExpiredGracePeriodDays || 10,
+    gracePeriodDays: config.UserConfig.ExpiredGracePeriodDays ?? 10,
     now: new Date().toISOString(),
   });
 
@@ -188,7 +184,18 @@ export async function getAuthorizedMember(
   // 过期但还在宽限期内 → 立即禁用账号
   if (membershipState.status === 'expired' && !user.banned) {
     user.banned = true;
+    user.banReason = 'expired';
     await db.saveAdminConfig(config);
+  }
+
+  if (membershipState.status === 'active' && user.banReason === 'expired') {
+    user.banned = false;
+    delete user.banReason;
+    await db.saveAdminConfig(config);
+  }
+
+  if (membershipState.status === 'active' && user.banned) {
+    return { ok: false, status: 401, error: '用户已被封禁' };
   }
 
   if (options?.requireActive && membershipState.status !== 'active') {

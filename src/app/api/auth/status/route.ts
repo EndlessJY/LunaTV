@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
       (entry) => entry.username === authInfo.username
     );
 
-    if (!user || user.banned) {
+    if (!user) {
       return responseNoStore({
         authenticated: false,
         role: null,
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
     const membershipState = getMembershipState({
       role: user.role,
       expiresAt: user.expiresAt,
-      gracePeriodDays: config.UserConfig.ExpiredGracePeriodDays || 10,
+      gracePeriodDays: config.UserConfig.ExpiredGracePeriodDays ?? 10,
       now: new Date().toISOString(),
     });
 
@@ -115,6 +115,22 @@ export async function GET(request: NextRequest) {
       clearAuthCookie(request, response);
 
       return response;
+    }
+
+    if (membershipState.status === 'active' && user.banReason === 'expired') {
+      user.banned = false;
+      delete user.banReason;
+      await db.saveAdminConfig(config);
+    }
+
+    if (membershipState.status === 'active' && user.banned) {
+      return responseNoStore({
+        authenticated: false,
+        role: null,
+        membershipStatus: null,
+        membershipExpiresAt: null,
+        username: null,
+      });
     }
 
     return responseNoStore({

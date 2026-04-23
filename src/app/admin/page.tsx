@@ -427,7 +427,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         requireInviteCode: Boolean(
           config.UserConfig.RequireInviteCodeForRegister
         ),
-        expiredGracePeriodDays: config.UserConfig.ExpiredGracePeriodDays || 10,
+        expiredGracePeriodDays: config.UserConfig.ExpiredGracePeriodDays ?? 10,
       });
     }
   }, [config]);
@@ -1070,7 +1070,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                     过期宽限期
                   </p>
                   <p className='text-xs text-gray-500 dark:text-gray-400'>
-                    账号过期后保留天数
+                    账号过期后保留天数，填 0 表示不设置宽限期
                   </p>
                 </div>
               </div>
@@ -1081,13 +1081,15 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                 value={userSettings.expiredGracePeriodDays}
                 onBlur={(e) =>
                   updateExpiredGracePeriodDays(
-                    Number(e.target.value || 1)
+                    Number(e.target.value === '' ? 0 : e.target.value)
                   )
                 }
                 onChange={(event) =>
                   setUserSettings((prev) => ({
                     ...prev,
-                    expiredGracePeriodDays: Number(event.target.value || 1),
+                    expiredGracePeriodDays: Number(
+                      event.target.value === '' ? 0 : event.target.value
+                    ),
                   }))
                 }
                 className='w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/30 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-green-500 dark:focus:ring-green-500/30'

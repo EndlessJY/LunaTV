@@ -150,7 +150,7 @@ async function refreshRecordAndFavorites() {
       try {
         const config = await getConfig();
         const userEntry = config.UserConfig.Users.find(u => u.username === user);
-        const gracePeriodDays = config.UserConfig.ExpiredGracePeriodDays ?? 30;
+        const gracePeriodDays = config.UserConfig.ExpiredGracePeriodDays ?? 10;
         const role = userEntry?.role ?? 'user';
         const expiresAt = userEntry?.expiresAt;
 
@@ -161,11 +161,18 @@ async function refreshRecordAndFavorites() {
 
         if (shouldPurgeExpiredUser({ role, expiresAt, gracePeriodDays, now })) {
           console.log(`用户已过宽限期，删除账号: ${user}`);
-          await db.deleteUser(user);
+          const previousUsers = config.UserConfig.Users;
           config.UserConfig.Users = config.UserConfig.Users.filter(
             u => u.username !== user
           );
           await db.saveAdminConfig(config);
+          try {
+            await db.deleteUser(user);
+          } catch (error) {
+            config.UserConfig.Users = previousUsers;
+            await db.saveAdminConfig(config);
+            throw error;
+          }
           console.log(`账号已删除: ${user}`);
           continue;
         }
@@ -180,6 +187,7 @@ async function refreshRecordAndFavorites() {
 
         if (status === 'expired' && userEntry && !userEntry.banned) {
           userEntry.banned = true;
+          userEntry.banReason = 'expired';
           await db.saveAdminConfig(config);
           console.log(`用户已过期，自动禁用账号: ${user}`);
           continue;

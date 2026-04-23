@@ -339,7 +339,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     adminConfig.UserConfig.ExpiredGracePeriodDays = 10;
   } else {
     adminConfig.UserConfig.ExpiredGracePeriodDays = Math.max(
-      1,
+      0,
       Math.floor(adminConfig.UserConfig.ExpiredGracePeriodDays)
     );
   }
@@ -375,6 +375,11 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     }
     if (typeof user.expiresAt !== 'string' || user.expiresAt.trim() === '') {
       user.expiresAt = undefined;
+    }
+    if (!user.banned) {
+      delete user.banReason;
+    } else if (user.banReason !== 'manual' && user.banReason !== 'expired') {
+      user.banReason = 'manual';
     }
   });
   // 重新添加回站长

@@ -59,6 +59,21 @@ describe('member helpers', () => {
     });
   });
 
+  it('treats zero grace days as immediate purge after expiry', () => {
+    expect(
+      getMembershipState({
+        role: 'user',
+        expiresAt: '2026-06-01T00:00:00.000Z',
+        gracePeriodDays: 0,
+        now: '2026-06-01T00:00:01.000Z',
+      })
+    ).toMatchObject({
+      status: 'expired',
+      shouldDelete: true,
+      graceDeleteAt: '2026-06-01T00:00:00.000Z',
+    });
+  });
+
   it('renews from current expiry when still active otherwise from now', () => {
     expect(
       renewMembership({

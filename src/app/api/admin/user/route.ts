@@ -240,6 +240,7 @@ export async function POST(request: NextRequest) {
           }
         }
         targetEntry.banned = true;
+        targetEntry.banReason = 'manual';
         break;
       }
       case 'unban': {
@@ -258,6 +259,7 @@ export async function POST(request: NextRequest) {
           }
         }
         targetEntry.banned = false;
+        delete targetEntry.banReason;
         break;
       }
       case 'setAdmin': {
@@ -403,6 +405,13 @@ export async function POST(request: NextRequest) {
         }
 
         targetEntry.expiresAt = parsedDate.toISOString();
+        if (
+          parsedDate.getTime() > Date.now() &&
+          targetEntry.banReason === 'expired'
+        ) {
+          targetEntry.banned = false;
+          delete targetEntry.banReason;
+        }
         break;
       }
       case 'updateUserApis': {

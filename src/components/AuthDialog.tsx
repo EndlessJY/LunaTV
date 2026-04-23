@@ -13,7 +13,7 @@ interface AuthDialogProps {
   onSuccess: () => Promise<void> | void;
 }
 
-const USERNAME_PLACEHOLDER = '3-32 位，仅支持字母、数字、下划线和中划线';
+const USERNAME_PLACEHOLDER = '请输入用户名';
 
 export function AuthDialog({
   open,

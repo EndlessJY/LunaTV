@@ -158,9 +158,6 @@ export async function POST(req: NextRequest) {
 
     const config = await getConfig();
     const user = config.UserConfig.Users.find((u) => u.username === username);
-    if (user && user.banned) {
-      return NextResponse.json({ error: '用户被封禁' }, { status: 401 });
-    }
 
     // 校验用户密码
     try {
@@ -181,7 +178,7 @@ export async function POST(req: NextRequest) {
         const state = getMembershipState({
           role,
           expiresAt: membershipExpiresAt,
-          gracePeriodDays: config.UserConfig.ExpiredGracePeriodDays || 10,
+          gracePeriodDays: config.UserConfig.ExpiredGracePeriodDays ?? 10,
           now,
         });
         membershipStatus = state.status;
@@ -213,8 +210,19 @@ export async function POST(req: NextRequest) {
         // 过期但还在宽限期内 → 立即禁用账号
         if (state.status === 'expired' && user && !user.banned) {
           user.banned = true;
+          user.banReason = 'expired';
           await db.saveAdminConfig(config);
         }
+      }
+
+      if (membershipStatus === 'active' && user?.banReason === 'expired') {
+        user.banned = false;
+        delete user.banReason;
+        await db.saveAdminConfig(config);
+      }
+
+      if (membershipStatus === 'active' && user?.banned) {
+        return NextResponse.json({ error: '用户被封禁' }, { status: 401 });
       }
 
       // 验证成功，设置认证cookie
