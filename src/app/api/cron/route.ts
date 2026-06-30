@@ -48,13 +48,16 @@ async function refreshAllLiveChannels() {
 
   // 并发刷新所有启用的直播源
   const refreshPromises = (config.LiveConfig || [])
-    .filter(liveInfo => !liveInfo.disabled)
+    .filter((liveInfo) => !liveInfo.disabled)
     .map(async (liveInfo) => {
       try {
         const nums = await refreshLiveChannels(liveInfo);
         liveInfo.channelNumber = nums;
       } catch (error) {
-        console.error(`刷新直播源失败 [${liveInfo.name || liveInfo.key}]:`, error);
+        console.error(
+          `刷新直播源失败 [${liveInfo.name || liveInfo.key}]:`,
+          error
+        );
         liveInfo.channelNumber = 0;
       }
     });
@@ -68,7 +71,12 @@ async function refreshAllLiveChannels() {
 
 async function refreshConfig() {
   let config = await getConfig();
-  if (config && config.ConfigSubscribtion && config.ConfigSubscribtion.URL && config.ConfigSubscribtion.AutoUpdate) {
+  if (
+    config &&
+    config.ConfigSubscribtion &&
+    config.ConfigSubscribtion.URL &&
+    config.ConfigSubscribtion.AutoUpdate
+  ) {
     try {
       const response = await fetch(config.ConfigSubscribtion.URL);
 
@@ -130,7 +138,6 @@ async function refreshRecordAndFavorites() {
           fallbackTitle: fallbackTitle.trim(),
         })
           .then((detail) => {
-            // 成功时才缓存结果
             const successPromise = Promise.resolve(detail);
             detailCache.set(key, successPromise);
             return detail;
@@ -139,17 +146,42 @@ async function refreshRecordAndFavorites() {
             console.error(`获取视频详情失败 (${source}+${id}):`, err);
             return null;
           });
+        detailCache.set(key, promise);
       }
       return promise;
     };
 
-    for (const user of users) {
+    // 并发限制工具
+    const runWithConcurrency = async <T>(
+      tasks: (() => Promise<T>)[],
+      concurrency: number
+    ): Promise<T[]> => {
+      const results: T[] = [];
+      let index = 0;
+      const worker = async () => {
+        while (index < tasks.length) {
+          const i = index++;
+          results[i] = await tasks[i]();
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(concurrency, tasks.length) }, () =>
+          worker()
+        )
+      );
+      return results;
+    };
+
+    // 处理单个用户的播放记录和收藏
+    const processUser = async (user: string) => {
       console.log(`开始处理用户: ${user}`);
 
       // 会员状态检查：自动禁用 / 删除过期用户
       try {
         const config = await getConfig();
-        const userEntry = config.UserConfig.Users.find(u => u.username === user);
+        const userEntry = config.UserConfig.Users.find(
+          (u) => u.username === user
+        );
         const gracePeriodDays = config.UserConfig.ExpiredGracePeriodDays ?? 10;
         const role = userEntry?.role ?? 'user';
         const expiresAt = userEntry?.expiresAt;
@@ -157,13 +189,15 @@ async function refreshRecordAndFavorites() {
         const now = new Date().toISOString();
 
         // 调试日志
-        console.log(`[会员检查] 用户=${user} role=${role} expiresAt=${expiresAt} gracePeriodDays=${gracePeriodDays}`);
+        console.log(
+          `[会员检查] 用户=${user} role=${role} expiresAt=${expiresAt} gracePeriodDays=${gracePeriodDays}`
+        );
 
         if (shouldPurgeExpiredUser({ role, expiresAt, gracePeriodDays, now })) {
           console.log(`用户已过宽限期，删除账号: ${user}`);
           const previousUsers = config.UserConfig.Users;
           config.UserConfig.Users = config.UserConfig.Users.filter(
-            u => u.username !== user
+            (u) => u.username !== user
           );
           await db.saveAdminConfig(config);
           try {
@@ -174,7 +208,7 @@ async function refreshRecordAndFavorites() {
             throw error;
           }
           console.log(`账号已删除: ${user}`);
-          continue;
+          return;
         }
 
         const { status } = getMembershipState({
@@ -190,12 +224,12 @@ async function refreshRecordAndFavorites() {
           userEntry.banReason = 'expired';
           await db.saveAdminConfig(config);
           console.log(`用户已过期，自动禁用账号: ${user}`);
-          continue;
+          return;
         }
 
         if (userEntry?.banned) {
           console.log(`用户已被禁用，跳过播放记录/收藏处理: ${user}`);
-          continue;
+          return;
         }
       } catch (err) {
         console.error(`检查用户会员状态失败 (${user}):`, err);
@@ -204,21 +238,22 @@ async function refreshRecordAndFavorites() {
       // 播放记录
       try {
         const playRecords = await db.getAllPlayRecords(user);
-        const totalRecords = Object.keys(playRecords).length;
+        const entries = Object.entries(playRecords);
+        const totalRecords = entries.length;
         let processedRecords = 0;
 
-        for (const [key, record] of Object.entries(playRecords)) {
+        const tasks = entries.map(([key, record]) => async () => {
           try {
             const [source, id] = key.split('+');
             if (!source || !id) {
               console.warn(`跳过无效的播放记录键: ${key}`);
-              continue;
+              return;
             }
 
             const detail = await getDetail(source, id, record.title);
             if (!detail) {
               console.warn(`跳过无法获取详情的播放记录: ${key}`);
-              continue;
+              return;
             }
 
             const episodeCount = detail.episodes?.length || 0;
@@ -243,10 +278,10 @@ async function refreshRecordAndFavorites() {
             processedRecords++;
           } catch (err) {
             console.error(`处理播放记录失败 (${key}):`, err);
-            // 继续处理下一个记录
           }
-        }
+        });
 
+        await runWithConcurrency(tasks, 5);
         console.log(`播放记录处理完成: ${processedRecords}/${totalRecords}`);
       } catch (err) {
         console.error(`获取用户播放记录失败 (${user}):`, err);
@@ -258,21 +293,22 @@ async function refreshRecordAndFavorites() {
         favorites = Object.fromEntries(
           Object.entries(favorites).filter(([_, fav]) => fav.origin !== 'live')
         );
-        const totalFavorites = Object.keys(favorites).length;
+        const favEntries = Object.entries(favorites);
+        const totalFavorites = favEntries.length;
         let processedFavorites = 0;
 
-        for (const [key, fav] of Object.entries(favorites)) {
+        const tasks = favEntries.map(([key, fav]) => async () => {
           try {
             const [source, id] = key.split('+');
             if (!source || !id) {
               console.warn(`跳过无效的收藏键: ${key}`);
-              continue;
+              return;
             }
 
             const favDetail = await getDetail(source, id, fav.title);
             if (!favDetail) {
               console.warn(`跳过无法获取详情的收藏: ${key}`);
-              continue;
+              return;
             }
 
             const favEpisodeCount = favDetail.episodes?.length || 0;
@@ -294,15 +330,19 @@ async function refreshRecordAndFavorites() {
             processedFavorites++;
           } catch (err) {
             console.error(`处理收藏失败 (${key}):`, err);
-            // 继续处理下一个收藏
           }
-        }
+        });
 
+        await runWithConcurrency(tasks, 5);
         console.log(`收藏处理完成: ${processedFavorites}/${totalFavorites}`);
       } catch (err) {
         console.error(`获取用户收藏失败 (${user}):`, err);
       }
-    }
+    };
+
+    // 用户间并发处理（限制 3 个用户同时处理）
+    const userTasks = users.map((user) => () => processUser(user));
+    await runWithConcurrency(userTasks, 3);
 
     console.log('刷新播放记录/收藏任务完成');
   } catch (err) {

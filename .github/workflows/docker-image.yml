@@ -14,7 +14,9 @@ on:
     tags:
       - 'v*'
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  release:
+    types: [published]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,6 +42,15 @@ jobs:
       - name: Prepare platform name
         run: |
           echo "PLATFORM_NAME=${{ matrix.platform }}" | sed 's|/|-|g' >> $GITHUB_ENV
+
+      - name: Determine Docker tag
+        id: docker-tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.inputs.tag || 'latest' }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Checkout source code
         uses: actions/checkout@v4

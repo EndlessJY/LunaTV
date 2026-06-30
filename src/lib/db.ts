@@ -54,9 +54,33 @@ export function generateStorageKey(source: string, id: string): string {
 // 导出便捷方法
 export class DbManager {
   private storage: IStorage | null;
+  private migrationPromise: Promise<void> | null = null;
 
   constructor() {
     this.storage = getStorage();
+    const storage = this.storage;
+    // 启动时自动触发数据迁移（异步，不阻塞构造）
+    if (storage && typeof storage.migrateData === 'function') {
+      this.migrationPromise = storage
+        .migrateData()
+        .then(async () => {
+          // 数据结构迁移完成后，执行密码哈希迁移
+          if (typeof storage.migratePasswords === 'function') {
+            await storage.migratePasswords();
+          }
+        })
+        .catch((err) => {
+          console.error('数据迁移异常:', err);
+        });
+    }
+  }
+
+  /** 等待迁移完成（内部方法，首次调用后 migrationPromise 会被置空） */
+  private async ensureMigrated(): Promise<void> {
+    if (this.migrationPromise) {
+      await this.migrationPromise;
+      this.migrationPromise = null;
+    }
   }
 
   private getRequiredStorage(): IStorage {
@@ -72,6 +96,7 @@ export class DbManager {
     source: string,
     id: string
   ): Promise<PlayRecord | null> {
+    await this.ensureMigrated();
     const storage = this.getRequiredStorage();
     const key = generateStorageKey(source, id);
     return storage.getPlayRecord(userName, key);
@@ -83,6 +108,7 @@ export class DbManager {
     id: string,
     record: PlayRecord
   ): Promise<void> {
+    await this.ensureMigrated();
     const storage = this.getRequiredStorage();
     const key = generateStorageKey(source, id);
     await storage.setPlayRecord(userName, key, record);
@@ -91,6 +117,7 @@ export class DbManager {
   async getAllPlayRecords(userName: string): Promise<{
     [key: string]: PlayRecord;
   }> {
+    await this.ensureMigrated();
     return this.getRequiredStorage().getAllPlayRecords(userName);
   }
 
@@ -99,9 +126,15 @@ export class DbManager {
     source: string,
     id: string
   ): Promise<void> {
+    await this.ensureMigrated();
     const storage = this.getRequiredStorage();
     const key = generateStorageKey(source, id);
     await storage.deletePlayRecord(userName, key);
+  }
+
+  async deleteAllPlayRecords(userName: string): Promise<void> {
+    await this.ensureMigrated();
+    await this.getRequiredStorage().deleteAllPlayRecords(userName);
   }
 
   // 收藏相关方法
@@ -110,6 +143,7 @@ export class DbManager {
     source: string,
     id: string
   ): Promise<Favorite | null> {
+    await this.ensureMigrated();
     const storage = this.getRequiredStorage();
     const key = generateStorageKey(source, id);
     return storage.getFavorite(userName, key);
@@ -121,6 +155,7 @@ export class DbManager {
     id: string,
     favorite: Favorite
   ): Promise<void> {
+    await this.ensureMigrated();
     const storage = this.getRequiredStorage();
     const key = generateStorageKey(source, id);
     await storage.setFavorite(userName, key, favorite);
@@ -129,6 +164,7 @@ export class DbManager {
   async getAllFavorites(
     userName: string
   ): Promise<{ [key: string]: Favorite }> {
+    await this.ensureMigrated();
     return this.getRequiredStorage().getAllFavorites(userName);
   }
 
@@ -137,9 +173,15 @@ export class DbManager {
     source: string,
     id: string
   ): Promise<void> {
+    await this.ensureMigrated();
     const storage = this.getRequiredStorage();
     const key = generateStorageKey(source, id);
     await storage.deleteFavorite(userName, key);
+  }
+
+  async deleteAllFavorites(userName: string): Promise<void> {
+    await this.ensureMigrated();
+    await this.getRequiredStorage().deleteAllFavorites(userName);
   }
 
   async isFavorited(
@@ -188,6 +230,7 @@ export class DbManager {
 
   // 获取全部用户名
   async getAllUsers(): Promise<string[]> {
+    await this.ensureMigrated();
     const storage = this.storage;
     if (storage && typeof (storage as any).getAllUsers === 'function') {
       return (storage as any).getAllUsers();
@@ -269,6 +312,7 @@ export class DbManager {
     source: string,
     id: string
   ): Promise<SkipConfig | null> {
+    await this.ensureMigrated();
     const storage = this.storage;
     if (storage && typeof (storage as any).getSkipConfig === 'function') {
       return (storage as any).getSkipConfig(userName, source, id);
@@ -282,6 +326,7 @@ export class DbManager {
     id: string,
     config: SkipConfig
   ): Promise<void> {
+    await this.ensureMigrated();
     const storage = this.storage;
     if (storage && typeof (storage as any).setSkipConfig === 'function') {
       await (storage as any).setSkipConfig(userName, source, id, config);
@@ -293,6 +338,7 @@ export class DbManager {
     source: string,
     id: string
   ): Promise<void> {
+    await this.ensureMigrated();
     const storage = this.storage;
     if (storage && typeof (storage as any).deleteSkipConfig === 'function') {
       await (storage as any).deleteSkipConfig(userName, source, id);
@@ -302,6 +348,7 @@ export class DbManager {
   async getAllSkipConfigs(
     userName: string
   ): Promise<{ [key: string]: SkipConfig }> {
+    await this.ensureMigrated();
     const storage = this.storage;
     if (storage && typeof (storage as any).getAllSkipConfigs === 'function') {
       return (storage as any).getAllSkipConfigs(userName);

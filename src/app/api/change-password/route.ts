@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getAuthInfoFromCookie } from '@/lib/auth-cookie';
 import { db } from '@/lib/db';
 
 export const runtime = 'nodejs';

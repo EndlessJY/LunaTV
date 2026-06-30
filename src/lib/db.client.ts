@@ -14,7 +14,7 @@
  * 如后续需要在客户端读取收藏等其它数据，可按同样方式在此文件中补充实现。
  */
 
-import { getAuthInfoFromBrowserCookie } from './auth';
+import { getAuthInfoFromBrowserCookie } from './auth-cookie';
 import { SkipConfig } from './types';
 
 // 全局错误触发函数
